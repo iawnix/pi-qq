@@ -1,0 +1,28 @@
+{
+  "appId": "YOUR_QQ_APP_ID",
+  "secretEnv": "QQBOT_APP_SECRET",
+  "allowUsers": ["YOUR_C2C_USER_OPENID"],
+  "groups": {
+    "YOUR_GROUP_OPENID": {
+      "requireMention": true,
+      "admins": ["YOUR_MEMBER_OPENID_IN_THIS_GROUP"],
+      "prompt": "这是一个朋友聊天群，回答简洁自然，注意区分发言者。"
+    }
+  },
+  "model": {
+    "provider": "YOUR_PI_PROVIDER",
+    "id": "YOUR_PI_MODEL_ID"
+  },
+  "historyLimit": 20,
+  "concurrency": 4,
+  "queuePerChat": 3,
+  "queueTotal": 64,
+  "rateLimit": {
+    "perUser": 10,
+    "perGroup": 30,
+    "global": 60,
+    "windowMs": 60000
+  },
+  "timeoutMs": 180000,
+  "replyWindowMs": 240000
+}
