@@ -14,7 +14,7 @@
 
 ## Pi 接入方式
 
-当前适配目标为 npm 最新稳定版 `@earendil-works/pi-coding-agent@1.4.0`，Node 要求为 `>=22.19.0`。开发依赖固定 1.4.0，宿主 peer 范围为 `~1.4.0`。旧包名 `@mariozechner/pi-coding-agent` 的 latest 为 0.73.1，不是本项目采用的维护分支。
+适配目标为 `@earendil-works/pi-coding-agent@1.4.0`，Node 要求为 `>=22.19.0`。开发依赖固定 1.4.0，宿主 peer 范围为 `~1.4.0`。本项目使用 `@earendil-works` 维护分支，旧包名 `@mariozechner/pi-coding-agent` 的示例不能直接套用。
 
 从初版的 1.2.0 升级后，所用的 ModelRuntime、资源加载器、会话创建和扩展注册接口保持兼容。1.3/1.4 调整了恢复会话时的工具加载行为，因此继续显式设置空工具列表和 `noTools: "all"`，并通过带有历史 read/bash 声明的真实 SDK 集成测试验证它们不会重新启用。上游已将内部 Pi 依赖固定为同一发布版本，本项目锁文件也统一到 1.4.0。此适配不修改宿主 Pi 安装。
 
