@@ -40,6 +40,28 @@ function fixture(cfg: Config) {
   return { bridge, runner, calls, purges, replies, reports };
 }
 
+test("authorized persona management receives actual editable file paths and reloads changes on the next turn", async () => {
+  const cfg = await characterConfig();
+  cfg.localTools = { ...cfg.localTools, enabled: true, cwd: cfg.dataDir, allowUsers: ["alice"] };
+  const f = fixture(cfg);
+  await f.bridge.handle(message({ content: "请修改你的身份卡，让回答短一些" }));
+  const authorized = f.calls.at(-1)!.system;
+  assert.ok(authorized.includes(cfg.character!.soulFile));
+  assert.ok(authorized.includes(cfg.character!.rulesFile));
+  assert.match(authorized, /可维护的项目文件/);
+  assert.doesNotMatch(authorized, /不要通过工具改写角色/);
+  await writeFile(cfg.character!.soulFile, "UPDATED_SOUL: keep replies brief");
+  await f.bridge.handle(message({ content: "现在聊聊吧" }));
+  assert.match(f.calls.at(-1)!.system, /UPDATED_SOUL/);
+  await f.bridge.handle(groupMessage({ content: "请改身份卡" }));
+  assert.match(f.calls.at(-1)!.system, /当前聊天没有本机工具权限/);
+  assert.doesNotMatch(f.calls.at(-1)!.system, /可维护的项目文件/);
+  cfg.groups.g!.allowTools = true;
+  await f.bridge.handle(groupMessage({ content: "请把规则里的表达改得自然一些" }));
+  assert.match(f.calls.at(-1)!.system, /可维护的项目文件/);
+  await f.bridge.stop();
+});
+
 test("character files resolve relative to configuration; missing, empty, oversized and shared-group configs fail closed", async () => {
   const cfg = config();
   await mkdir(join(cfg.dataDir, "persona"));
