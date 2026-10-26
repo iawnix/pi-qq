@@ -44,6 +44,7 @@ export class MemoryStore {
       CREATE TABLE IF NOT EXISTS settings (scope TEXT PRIMARY KEY, enabled INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS routes (chat TEXT PRIMARY KEY, mode TEXT NOT NULL, epoch INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS conversations (scope TEXT NOT NULL, key TEXT NOT NULL, PRIMARY KEY(scope,key));
+      CREATE TABLE IF NOT EXISTS identity_migrations (source TEXT PRIMARY KEY, target TEXT NOT NULL, complete INTEGER NOT NULL DEFAULT 0);
       PRAGMA user_version=1;`);
       this.database = db;
       return db;
@@ -51,6 +52,38 @@ export class MemoryStore {
   }
 
   close(): void { if (!this.closed) { this.database?.close(); this.closed = true; } }
+
+  beginIdentityMigration(source: string, target: string): boolean {
+    const row = this.db.prepare("SELECT target,complete FROM identity_migrations WHERE source=?").get(source);
+    if (row && row.target !== target) throw new UserError("该群成员曾绑定到另一私聊身份，不能直接重新绑定；请先离线处理已有共享数据。");
+    if (row?.complete === 1 && !this.conversationKeys(source).length) return false;
+    this.db.prepare("INSERT OR IGNORE INTO identity_migrations(source,target) VALUES(?,?)").run(source, target);
+    this.db.prepare("UPDATE identity_migrations SET complete=0 WHERE source=?").run(source);
+    return true;
+  }
+  finishIdentityMigration(source: string): void {
+    this.db.prepare("UPDATE identity_migrations SET complete=1 WHERE source=?").run(source);
+  }
+  mergeIdentity(source: string, target: string): void {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      // Conflicting profiles need explicit confirmation, not a silent overwrite.
+      const rows = this.db.prepare("SELECT id,name,text FROM memories WHERE scope=? AND kind='profile'").all(source);
+      for (const row of rows) {
+        if (this.db.prepare("SELECT 1 FROM memories WHERE scope=? AND kind='profile' AND name=?").get(target, String(row.name))) {
+          this.db.prepare("UPDATE memories SET kind='fact',name='',text=?,status='pending',expiresAt=? WHERE id=?")
+            .run(`原画像 ${row.name} = ${row.text}`, this.now() + 7 * 86400000, String(row.id));
+        }
+      }
+      this.db.prepare("UPDATE memories SET scope=?,source=json_array(?,source) WHERE scope=?").run(target, source, source);
+      this.db.prepare(`INSERT INTO settings(scope,enabled) SELECT ?,enabled FROM settings WHERE scope=?
+        ON CONFLICT(scope) DO UPDATE SET enabled=min(settings.enabled,excluded.enabled)`).run(target, source);
+      this.db.prepare("DELETE FROM settings WHERE scope=?").run(source);
+      this.db.prepare("INSERT OR IGNORE INTO conversations(scope,key) SELECT ?,key FROM conversations WHERE scope=?").run(target, source);
+      this.db.prepare("DELETE FROM conversations WHERE scope=?").run(source);
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
 
   /** Epoch prevents switching group → member → group from resurrecting the old shared session. */
   route(chat: string, mode: "group" | "member"): number {

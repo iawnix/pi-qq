@@ -60,6 +60,8 @@ export class CharacterStore {
         PRIMARY KEY(scope,source), UNIQUE(scope,fingerprint)
       );
       CREATE INDEX IF NOT EXISTS reflections_scope ON reflections(scope,createdAt);
+      CREATE TABLE IF NOT EXISTS relationship_audiences (scope TEXT NOT NULL, audience TEXT NOT NULL, PRIMARY KEY(scope,audience));
+      INSERT OR IGNORE INTO relationship_audiences(scope,audience) SELECT scope,audience FROM relationships;
       PRAGMA user_version=1;`);
       this.database = db;
       return db;
@@ -68,6 +70,24 @@ export class CharacterStore {
   close(): void { this.database?.close(); this.database = undefined; }
   private register(scope: string, audience: string): void {
     this.db.prepare("INSERT OR IGNORE INTO relationships(scope,audience,updatedAt) VALUES(?,?,?)").run(scope, audience, this.now());
+    this.db.prepare("INSERT OR IGNORE INTO relationship_audiences(scope,audience) VALUES(?,?)").run(scope, audience);
+  }
+  mergeIdentity(source: string, target: string): void {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      // Keep the private relationship stage when both scenes already have one.
+      this.db.prepare(`INSERT INTO relationships(scope,audience,stage,enabled,updatedAt)
+        SELECT ?,audience,stage,enabled,updatedAt FROM relationships WHERE scope=?
+        ON CONFLICT(scope) DO UPDATE SET enabled=min(relationships.enabled,excluded.enabled)`).run(target, source);
+      this.db.prepare("INSERT OR IGNORE INTO relationship_audiences(scope,audience) SELECT ?,audience FROM relationship_audiences WHERE scope=?").run(target, source);
+      this.db.prepare("UPDATE OR IGNORE experiences SET scope=?,source=json_array(?,source) WHERE scope=?").run(target, source, source);
+      this.db.prepare("UPDATE OR IGNORE reflections SET scope=?,source=json_array(?,source) WHERE scope=?").run(target, source, source);
+      // Only duplicate source/fingerprint rows can remain after UPDATE OR IGNORE.
+      for (const table of ["experiences", "reflections", "relationships", "relationship_audiences"]) {
+        this.db.prepare(`DELETE FROM ${table} WHERE scope=?`).run(source);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
   stage(scope: string): number { return Number(this.db.prepare("SELECT stage FROM relationships WHERE scope=?").get(scope)?.stage ?? 1); }
   changeStage(scope: string, audience: string, direction: "next" | "previous"): number {
@@ -175,7 +195,8 @@ export class CharacterStore {
     const attraction = this.attraction(stats);
     let preferred = false;
     if (enabled && group && attraction > 0) {
-      const peers = this.db.prepare("SELECT scope FROM relationships WHERE audience=? AND scope<>? AND enabled=1").all(audience, scope);
+      const peers = this.db.prepare(`SELECT r.scope FROM relationships r JOIN relationship_audiences a ON a.scope=r.scope
+        WHERE a.audience=? AND r.scope<>? AND r.enabled=1`).all(audience, scope);
       const strongestOther = Math.max(0, ...peers.map(row => this.attraction(this.stats(String(row.scope)))));
       preferred = attraction >= strongestOther + 2;
     }

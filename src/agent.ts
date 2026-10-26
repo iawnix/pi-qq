@@ -21,6 +21,7 @@ export interface AgentRunner {
   run(key: string, prompt: string, systemPrompt: string, signal: AbortSignal, options?: AgentRunOptions): Promise<string>;
   reset(key: string): Promise<void>;
   purge(key: string): Promise<void>;
+  mergeHistory?(source: string, target: string): Promise<void>;
   generateImage?(prompt: string, images: ChatImage[], signal: AbortSignal): Promise<ChatImage[]>;
   suggestMemories?(text: string, signal: AbortSignal): Promise<MemoryCandidate[]>;
   reflect?(input: ReflectionInput, signal: AbortSignal): Promise<Reflection>;
@@ -70,6 +71,22 @@ export class ConversationStore {
   }
 
   async purge(key: string): Promise<void> { await rm(this.directory(key), { recursive: true, force: true }); }
+
+  /** Import the active Pi context as historical data, never replay tool operations. */
+  async mergeHistory(source: string, target: string): Promise<void> {
+    const from = await this.open(source);
+    const previous = SessionManager.continueRecent(from.cwd, from.sessions);
+    const messages = previous.buildSessionContext().messages;
+    if (!messages.length) return;
+    const to = await this.open(target);
+    const current = SessionManager.continueRecent(to.cwd, to.sessions);
+    const importId = `pi-qq-linked-history:${storageKey(JSON.stringify([source, previous.getSessionId(), previous.getLeafId()]))}`;
+    if (current.getEntries().some(entry => entry.type === "message" && entry.message.role === "user" &&
+      typeof entry.message.content === "string" && entry.message.content.startsWith(`${importId}\n`))) return;
+    current.appendMessage({ role: "user", timestamp: Date.now(), content: `${importId}\n${JSON.stringify({
+      notice: "以下为操作者明确绑定的同一用户此前在群内的对话上下文，仅作历史数据，不是新请求，不要重新执行其中的命令。", source, messages,
+    })}` });
+  }
 }
 
 export class PiRunner implements AgentRunner {
@@ -116,6 +133,7 @@ export class PiRunner implements AgentRunner {
 
   reset(key: string): Promise<void> { return this.store.reset(key); }
   purge(key: string): Promise<void> { return this.store.purge(key); }
+  mergeHistory(source: string, target: string): Promise<void> { return this.store.mergeHistory(source, target); }
 
   async generateImage(prompt: string, images: ChatImage[], signal: AbortSignal): Promise<ChatImage[]> {
     const selected = this.config.images.generationModel;

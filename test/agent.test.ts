@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBashTool, createReadTool, SessionManager, ModelRuntime, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { ConversationStore, PiRunner } from "../src/agent.js";
-import { config } from "./helpers.js";
+import { ChatBridge } from "../src/bridge.js";
+import { config, message, groupMessage } from "./helpers.js";
 import sharp from "sharp";
 
 test("session store reopens chat and reset preserves other chat namespaces", async t => {
@@ -24,6 +25,22 @@ test("session store reopens chat and reset preserves other chat namespaces", asy
   await store.purge("app:c2c:alice");
   assert.deepEqual(await store.open("app:c2c:alice"), first);
   assert.deepEqual(await store.open("app:group:alice"), other);
+});
+
+test("history migration persists with an empty destination and is retry-safe without replaying reset generations", async () => {
+  const cfg = config();
+  const store = new ConversationStore(cfg.dataDir);
+  let old = await store.open("source");
+  SessionManager.continueRecent(old.cwd, old.sessions).appendMessage({ role: "user", content: "DISCARDED_GENERATION", timestamp: Date.now() });
+  await store.reset("source");
+  old = await store.open("source");
+  SessionManager.continueRecent(old.cwd, old.sessions).appendMessage({ role: "user", content: "ACTIVE_GENERATION", timestamp: Date.now() });
+  await store.mergeHistory("source", "destination");
+  await new ConversationStore(cfg.dataDir).mergeHistory("source", "destination");
+  const target = await store.open("destination");
+  const context = JSON.stringify(SessionManager.continueRecent(target.cwd, target.sessions).buildSessionContext());
+  assert.equal((context.match(/ACTIVE_GENERATION/g) ?? []).length, 1);
+  assert.doesNotMatch(context, /DISCARDED_GENERATION/);
 });
 
 test("real Pi SDK with local mock model: no tools/private resources; restore, isolate and reset history", { timeout: 30000 }, async t => {
@@ -154,4 +171,32 @@ test("real Pi SDK with local mock model: no tools/private resources; restore, is
   current = registry.find("host-only", "auto");
   await hosted.run("host-router", "ROUTED", "Chat instructions", signal);
   assert.equal(requests.at(-1)!.model, "host-b");
+  // Real SDK transcript persistence, legacy group context import, and linked routing.
+  const linked = { ...hostedConfig, dataDir: join(root, "linked-data"), groups: { g: { ...cfg.groups.g!, sessionScope: "member" as const } } };
+  const reports: string[] = [];
+  const sink = { sendText: async () => {} };
+  let bridge = new ChatBridge(linked, PiRunner.fromHost(linked, () => ({ model: current, modelRegistry: registry })), sink, code => reports.push(code));
+  await bridge.handle(message({ content: "LEGACY_PRIVATE_TEXT" }));
+  await bridge.handle(groupMessage({ senderId: "group-alice", content: "LEGACY_GROUP_TEXT" }));
+  await bridge.stop();
+  linked.identityLinks = [{ privateUser: "alice", groupMembers: { g: "group-alice" } }];
+  bridge = new ChatBridge(linked, PiRunner.fromHost(linked, () => ({ model: current, modelRegistry: registry })), sink, code => reports.push(code));
+  await bridge.handle(groupMessage({ senderId: "group-alice", content: "LINKED_GROUP_NEW" }));
+  assert.match(JSON.stringify(requests.at(-1)), /LEGACY_PRIVATE_TEXT/);
+  assert.match(JSON.stringify(requests.at(-1)), /LEGACY_GROUP_TEXT/);
+  await bridge.stop();
+  bridge = new ChatBridge(linked, PiRunner.fromHost(linked, () => ({ model: current, modelRegistry: registry })), sink, code => reports.push(code));
+  await bridge.handle(message({ content: "LINKED_PRIVATE_NEW" }));
+  assert.match(JSON.stringify(requests.at(-1)), /LINKED_GROUP_NEW/);
+  assert.equal((JSON.stringify(requests.at(-1)).match(/LEGACY_GROUP_TEXT/g) ?? []).length, 1);
+  await bridge.handle(groupMessage({ senderId: "bob", content: "UNLINKED_OTHER_USER" }));
+  assert.doesNotMatch(JSON.stringify(requests.at(-1)), /LEGACY_PRIVATE_TEXT|LINKED_PRIVATE_NEW/);
+  await bridge.handle(groupMessage({ senderId: "admin", content: "/reset all" }));
+  await bridge.handle(message({ content: "AFTER_GROUP_ADMIN_RESET" }));
+  assert.match(JSON.stringify(requests.at(-1)), /LINKED_GROUP_NEW/);
+  await bridge.handle(groupMessage({ senderId: "group-alice", content: "/reset" }));
+  await bridge.handle(message({ content: "AFTER_LINKED_RESET" }));
+  assert.doesNotMatch(JSON.stringify(requests.at(-1)), /LEGACY_PRIVATE_TEXT|LEGACY_GROUP_TEXT|LINKED_GROUP_NEW/);
+  assert.deepEqual(reports, []);
+  await bridge.stop();
 });

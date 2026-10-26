@@ -11,6 +11,8 @@ test("Friend launcher sets isolated agent/session paths and explicitly loads onl
   const cfg = config();
   const root = cfg.dataDir;
   await mkdir(join(root, "bin"));
+  await mkdir(join(root, "src"));
+  await writeFile(join(root, "src/extension.ts"), "");
   const launcher = join(root, "start-friend.sh");
   await writeFile(launcher, await readFile(resolve("start-friend.sh")));
   await writeFile(join(root, "bin", "pi"), `#!${process.execPath}\nconsole.log(JSON.stringify({cwd:process.cwd(),agent:process.env.PI_CODING_AGENT_DIR,config:process.env.PI_QQ_CONFIG,args:process.argv.slice(2)}));\n`, { mode: 0o700 });
@@ -20,6 +22,13 @@ test("Friend launcher sets isolated agent/session paths and explicitly loads onl
   assert.equal(result.agent, join(root, ".runtime/pi-agent"));
   assert.equal(result.config, join(root, "qqbot.json"));
   assert.deepEqual(result.args, ["--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "-e", join(root, "src/extension.ts"), "--session-dir", join(root, ".runtime/console-sessions"), "--help"]);
+  await mkdir(join(root, ".app/pi-qq/src"), { recursive: true });
+  await writeFile(join(root, ".app/pi-qq/src/extension.ts"), "");
+  const installed = JSON.parse((await promisify(execFile)("bash", [launcher], { env: { ...process.env, PATH: `${join(root, "bin")}:${process.env.PATH}` } })).stdout);
+  assert.equal(installed.cwd, root);
+  assert.equal(installed.agent, result.agent);
+  assert.equal(installed.config, result.config);
+  assert.equal(installed.args[5], join(root, ".app/pi-qq/src/extension.ts"));
 });
 
 test("real Pi loader honors discovery opt-outs while loading the explicit QQ extension", async () => {

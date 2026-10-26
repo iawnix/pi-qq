@@ -18,6 +18,12 @@ export const configSchema = z.object({
   secretEnv: z.string().min(1).default("QQBOT_APP_SECRET"),
   allowUsers: ids,
   groups: z.record(z.string().min(1), group).default({}),
+  // Explicit full-history sharing; never infer identity from equal OpenIDs or names.
+  identityLinks: z.array(z.object({
+    privateUser: z.string().trim().min(1),
+    groupMembers: z.record(z.string().min(1), z.string().trim().min(1))
+      .refine(value => Object.keys(value).length > 0, "至少填写一个群成员身份"),
+  }).strict()).default([]),
   localTools: z.object({
     enabled: z.boolean().default(false),
     cwd: z.string().min(1).refine(isAbsolute, "请填写绝对路径").optional(),
@@ -70,7 +76,20 @@ export const configSchema = z.object({
     retentionDays: z.number().int().min(0).max(3650).default(0),
   }).strict().prefault({}),
 }).strict().refine(value => !value.character || Object.values(value.groups).every(g => g.sessionScope === "member"),
-  "角色模式的群必须使用 sessionScope: member，以隔离每人的关系状态");
+  "角色模式的群必须使用 sessionScope: member，以隔离每人的关系状态").superRefine((value, ctx) => {
+    const seen = new Set<string>();
+    for (const [index, link] of value.identityLinks.entries()) {
+      const identities = [JSON.stringify(["c2c", link.privateUser]),
+        ...Object.entries(link.groupMembers).map(([groupId, member]) => JSON.stringify(["group", groupId, member]))];
+      if (identities.some(id => seen.has(id))) ctx.addIssue({ code: "custom", path: ["identityLinks", index], message: "每个身份只能绑定一次" });
+      identities.forEach(id => seen.add(id));
+      for (const groupId of Object.keys(link.groupMembers)) {
+        if (!Object.hasOwn(value.groups, groupId) || value.groups[groupId]?.sessionScope !== "member") {
+          ctx.addIssue({ code: "custom", path: ["identityLinks", index, "groupMembers"], message: "绑定的群必须已配置并使用 sessionScope: member" });
+        }
+      }
+    }
+  });
 
 export type Config = z.infer<typeof configSchema>;
 export const defaultConfigPath = join(homedir(), ".pi", "qqbot.json");

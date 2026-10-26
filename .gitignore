@@ -16,5 +16,6 @@ memory/
 *.sqlite-shm
 *.tgz
 .runtime/
+.app/
 SOUL.md
 SYSTEM.md

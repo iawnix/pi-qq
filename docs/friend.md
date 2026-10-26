@@ -10,11 +10,26 @@ Friend/
 ├── SYSTEM.md                    # 交互规则，不提交 Git
 ├── qqbot.json                   # QQ 凭据和授权，不提交 Git
 ├── start-friend.sh
+├── .app/pi-qq/                  # 程序仓库、src、dist、node_modules
 └── .runtime/                    # 全部忽略于 Git
     ├── pi-agent/                # 专用 Pi 设置、模型与认证
     ├── console-sessions/        # 本地控制台会话
     └── qq/                     # QQ 网关、对话、记忆、经历与关系
 ```
+
+推荐把程序与角色工作区分开安装：
+
+```bash
+mkdir -p ~/Friend/.app
+git clone https://github.com/iawnix/pi-qq.git ~/Friend/.app/pi-qq
+cd ~/Friend/.app/pi-qq
+npm ci
+npm run build
+cp start-friend.sh ~/Friend/start-friend.sh
+chmod +x ~/Friend/start-friend.sh
+```
+
+将配置与自己的身份卡放在 `~/Friend`，再配置下方路径。启动脚本优先加载 `.app/pi-qq/src/extension.ts`，工作目录仍是 Friend；源码安装在根目录的旧布局也兼容。更新程序时在 `.app/pi-qq` 内运行 Git/npm 命令，再复制新版启动脚本到 Friend。不要删除 `.app` 或 `.runtime`，前者是程序，后者是模型配置和记忆数据。
 
 保留自己的 `SOUL.md`，将 `examples/friend/SYSTEM.example.md` 复制为 `SYSTEM.md`。QQ 显式读取配置指定的两个文件；它不会自动扫描 AGENTS.md、技能、工作区提示或其他身份卡。文件路径相对于 `qqbot.json` 解析；检查时验证文件存在、非空与大小限制，每轮聊天重新读取。修改身份后可用 `/reset` 开启新对话，避免旧台词影响新设定。
 
@@ -44,6 +59,8 @@ Friend/
 ```
 
 角色模式要求所有已配置群使用 `sessionScope: "member"`。原有 AppSecret、白名单、管理员、图片及工具授权仍然适用。示例不开放本机工具。
+
+默认每个用户在不同场景仍独立。若希望同一个人私聊和群聊连续交流，配置 [identityLinks 完整同步](configuration.md#同一人的私聊与群聊完整同步)。它共享实际 Pi 会话和长期状态，机器人在已绑定群里也可以参考私聊内容；其他群成员不自动加入绑定。下文的“当前身份与场景”在启用绑定时指此人的全部已绑定场景。
 
 用 `./start-friend.sh` 启动，再在 Pi 中 `/model` 选择模型、`/qq start` 连接 QQ。脚本设置独立的 `PI_CODING_AGENT_DIR` 和 `--session-dir`，使用 `--no-extensions --no-skills --no-prompt-templates --no-themes`，只用 `-e` 加载 QQ 扩展。Pi 1.4 的显式扩展路径在关闭自动发现后仍有效。
 
@@ -112,6 +129,8 @@ Pi 会话保存对话与上下文压缩结果；SQLite 经历账本独立于 Pi 
 `/reset` 只重置对话，保留关系和全部长期记忆。`/forget all` 清除当前作用域的普通记忆和经历，保留明确关系阶段；`/重新认识 确认` 连阶段也重置。删除事实编号也会移除来自同一条消息的经历贡献。
 
 群公共经历可能进入其他成员的持久对话。因此删除经历、替换/删除事实、停用记忆和重新认识时，会清理当前群所有已登记成员的对话历史，保留其他成员的事实、经历和阶段。角色任务全局串行执行，删除会等待前面的回答和反思完成，防止迟到结果重新写入；并发配置在角色模式下实际限制为 1。
+
+存在 `identityLinks` 时，公共经历可能随已绑定成员的上下文进入其他场景，上述清理扩大到本角色全部已登记对话。关系、记忆启停和删除对当前绑定身份的所有场景同步生效。
 
 `/memory off` 停止当前作用域的事实/经历检索与采集，并让其旧经历退出公共检索和感受统计；已有数据保留。明确关系阶段仍有效。重新开启会恢复已有经历的影响。普通事实的 retentionDays 规则不自动删除独立的经历账本，需要删除相关经历或使用 `/forget`。
 

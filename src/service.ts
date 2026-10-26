@@ -127,6 +127,8 @@ export class QQService {
         sessionPersistence: kvSessionPersistence({ store, accountId: config.appId }),
       });
       const bridge = new ChatBridge(config, runner, bot, log);
+      try { await bridge.initialize(); }
+      catch (error) { await bridge.stop(); throw error; }
       return new QQService(bot, bridge, controller, store, release, unlink, log, config);
     } catch (error) {
       unlink();
