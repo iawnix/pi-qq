@@ -8,7 +8,7 @@ import { ChatBridge } from "../src/bridge.js";
 import type { AgentRunner } from "../src/agent.js";
 import { config, message, groupMessage, deferred, tick } from "./helpers.js";
 
-const options = (): NonNullable<Config["character"]> => ({ id: "friend", soulFile: "SOUL.md", rulesFile: "SYSTEM.md",
+const options = (): NonNullable<Config["character"]> => ({ id: "friend", mode: "companion", soulFile: "SOUL.md", rulesFile: "SYSTEM.md",
   evolution: true, reflectionIntervalMs: 0, dailyEventLimit: 3, shareGroupExperiences: true });
 const event = (text: string, shared = true): Reflection => ({ experience: { summary: `交流：${text}`, evidence: text,
   kind: "interaction", confidence: 0.95, trust: 1, comfort: 1, affinity: 1, public: shared }, facts: [] });
@@ -97,15 +97,15 @@ test("event ledger persists gradual feelings, permits user-only adjacent stages,
     }
     assert.equal(store.claimReflection("alice", "group", `extra${day}`, `今天还有一件不同的事情${day}`), false);
     if (day < 2) {
-      assert.equal(store.context("alice", "group", "旧书", true, true).relationship.attraction, "尚未形成持续心动");
+      assert.equal(store.context("alice", "group", "旧书", true, true).relationship!.attraction, "尚未形成持续心动");
       now += 86400000;
     }
   }
   const before = store.context("alice", "group", "旧书", true, true);
-  assert.equal(before.relationship.attraction, "逐渐心动");
-  assert.equal(before.relationship.prefersCurrentSpeaker, true);
+  assert.equal(before.relationship!.attraction, "逐渐心动");
+  assert.equal(before.relationship!.prefersCurrentSpeaker, true);
   assert.equal(before.experiences.length, 6);
-  assert.equal(store.context("bob", "group", "旧书", true, true).relationship.trust, 0);
+  assert.equal(store.context("bob", "group", "旧书", true, true).relationship!.trust, 0);
   assert.equal(store.changeStage("alice", "group", "next"), 2);
   store.close();
   store = new CharacterStore(cfg.dataDir, options(), () => now);
@@ -121,10 +121,10 @@ test("event ledger persists gradual feelings, permits user-only adjacent stages,
     }
     now += 86400000;
   }
-  assert.equal(store.context("alice", "group", "", true, true).relationship.prefersCurrentSpeaker, false);
-  assert.equal(store.context("bob", "group", "", true, true).relationship.prefersCurrentSpeaker, false);
+  assert.equal(store.context("alice", "group", "", true, true).relationship!.prefersCurrentSpeaker, false);
+  assert.equal(store.context("bob", "group", "", true, true).relationship!.prefersCurrentSpeaker, false);
   store.remove("alice", "all");
-  assert.equal(store.context("alice", "group", "", true, true).relationship.trust, 0);
+  assert.equal(store.context("alice", "group", "", true, true).relationship!.trust, 0);
   assert.equal(store.stage("alice"), 2);
   store.restart("alice");
   assert.equal(store.stage("alice"), 1);
@@ -150,7 +150,7 @@ test("reflection bounds reject replay, manipulation, bad evidence and schema exp
   const imagined = event(text);
   imagined.experience!.kind = "imagined";
   assert.ok(store.record("a", "g", "a", "m1", text, imagined, true));
-  assert.equal(store.context("a", "g", "", true, true).relationship.trust, 0);
+  assert.equal(store.context("a", "g", "", true, true).relationship!.trust, 0);
   assert.equal(store.context("a", "g", "", true, true).experiences[0]!.kind, "imagined");
   assert.equal(store.record("a", "g", "a", "m1", text, imagined, true), undefined);
   assert.equal(reflectionSchema.safeParse({ ...event(text), stage: 5 }).success, false);
@@ -177,7 +177,7 @@ test("public retrieval excludes private chats, other groups, unshared events and
   store.setEnabled("a", "g", true);
   store.removeSource("a", visible.source);
   assert.deepEqual(store.context("b", "g", "", true, true).publicExperiences, []);
-  assert.equal(store.context("a", "g", "", true, true).relationship.trust, 1);
+  assert.equal(store.context("a", "g", "", true, true).relationship!.trust, 1);
   assert.deepEqual(store.context("a", "g", "", false, true).experiences, []);
   store.close();
 });
@@ -308,5 +308,36 @@ test("explicit Chinese remember requests persist immediately without reflection;
   const memories = JSON.parse(f.calls[0]!.prompt).memories;
   assert.ok(memories.some((m: { text: string }) => m.text === "我喜欢读散文"));
   assert.ok(memories.some((m: { text: string }) => m.text === "我喜欢慢节奏聊天"));
+  await f.bridge.stop();
+});
+
+test("assistant mode keeps experiences and explicit identity scopes without relationship scoring or commands", async () => {
+  const cfg = await characterConfig();
+  cfg.character!.mode = "assistant";
+  await writeFile(cfg.character!.rulesFile, "你是 AI 助手，帮助用户完成任务。");
+  const store = new CharacterStore(join(cfg.dataDir, "assistant-ledger"), cfg.character!);
+  const text = "我想和你讨论 Linux 自动化任务的设计";
+  assert.equal(store.claimReflection("alice", "group", "one", text), true);
+  store.record("alice", "group", "alice", "one", text, event(text), true);
+  assert.equal(store.list("alice")[0]!.affinity, 0);
+  assert.equal(store.list("alice")[0]!.trust, 0);
+  const context = store.context("alice", "group", text, true, true);
+  assert.equal(context.relationship, undefined);
+  assert.equal(context.growth, undefined);
+  assert.equal(context.experiences.length, 1);
+  store.close();
+  const f = fixture(cfg);
+  await f.bridge.handle(message({ content: "/help" }));
+  assert.doesNotMatch(f.replies.at(-1)!, /\/关系|\/重新认识/);
+  await f.bridge.handle(message({ content: "/关系 下一阶段" }));
+  assert.match(f.replies.at(-1)!, /没有关系阶段/);
+  assert.equal(f.purges.length, 0);
+  await f.bridge.handle(message({ content: text }));
+  assert.match(f.calls.at(-1)!.system, /AI 助手/);
+  assert.doesNotMatch(f.calls.at(-1)!.system, /程序提供的当前状态|prefersCurrentSpeaker|关系阶段以程序/);
+  await f.bridge.handle(message({ content: "/经历" }));
+  assert.match(f.replies.at(-1)!, /Linux/);
+  await f.bridge.handle(message({ senderId: "bob", replyTarget: { scope: "c2c", targetId: "bob" }, content: "/经历" }));
+  assert.doesNotMatch(f.replies.at(-1)!, /Linux/);
   await f.bridge.stop();
 });

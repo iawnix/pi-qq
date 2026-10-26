@@ -1,0 +1,22 @@
+[Unit]
+Description=Pi QQ assistant
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Friend
+Environment=PI_CODING_AGENT_DIR=%h/Friend/.runtime/pi-agent
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/node %h/Friend/.app/pi-qq/dist/cli.js start --config %h/Friend/qqbot.json
+Restart=always
+RestartSec=15
+TimeoutStopSec=45
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

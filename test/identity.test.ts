@@ -13,7 +13,7 @@ async function setup() {
   const cfg = config();
   cfg.groups.g!.sessionScope = "member";
   cfg.rateLimit = { perUser: 100, perGroup: 100, global: 200, windowMs: 60000 };
-  cfg.character = { id: "friend", soulFile: join(cfg.dataDir, "SOUL.md"), rulesFile: join(cfg.dataDir, "SYSTEM.md"),
+  cfg.character = { id: "friend", mode: "companion", soulFile: join(cfg.dataDir, "SOUL.md"), rulesFile: join(cfg.dataDir, "SYSTEM.md"),
     evolution: true, reflectionIntervalMs: 0, dailyEventLimit: 10, shareGroupExperiences: true };
   await writeFile(cfg.character.soulFile, "安静的朋友");
   await writeFile(cfg.character.rulesFile, "慢慢建立关系");

@@ -131,6 +131,22 @@ test("real Pi SDK with local mock model: no tools/private resources; restore, is
   assert.ok(JSON.stringify(requests.at(-1)).includes("draw a cat"));
   assert.ok(JSON.stringify(requests.at(-1)).includes("data:image/png"));
   assert.ok(!JSON.stringify(requests.at(-1)).includes("FIRST_CHAT_PRIVATE"));
+  // Exercise real SDK compaction, checkpoint restore and continued replies with a local model.
+  answer = "COMPACTED_SUMMARY_OR_REPLY";
+  const compactConfig = { ...cfg, dataDir: join(root, "compacting"),
+    context: { ...cfg.context, maxTokens: 4096, keepRecentTokens: 512 } };
+  const compactRunner = await PiRunner.create(compactConfig);
+  await compactRunner.run("budgeted", "OLD_CONTEXT_".repeat(1800), "Chat instructions", signal);
+  assert.equal(await compactRunner.run("budgeted", "RECENT_FOLLOWUP ".repeat(300), "Chat instructions", signal), answer);
+  assert.equal(await compactRunner.run("budgeted", "SECOND_RECENT_FOLLOWUP", "Chat instructions", signal), answer);
+  const compactStore = new ConversationStore(compactConfig.dataDir);
+  const compacted = await compactStore.open("budgeted");
+  assert.notEqual(compacted.sessions.split("/").at(-1), "initial");
+  const compactContext = SessionManager.continueRecent(compacted.cwd, compacted.sessions).buildSessionContext();
+  assert.ok(compactContext.messages.some(m => m.role === "compactionSummary"));
+  assert.equal(await (await PiRunner.create(compactConfig)).run("budgeted", "AFTER_SERVICE_RESTART", "Chat instructions", signal), answer);
+  assert.doesNotMatch(JSON.stringify(requests.at(-1)), /FIRST_CHAT_PRIVATE|OWNER_/);
+
   // Standalone startup uses Pi's saved default when no model override is given.
   await writeFile(join(cfg.agentDir, "settings.json"), JSON.stringify({ defaultProvider: "test", defaultModel: "text-only" }));
   const defaultRunner = await PiRunner.create({ ...cfg, model: undefined });

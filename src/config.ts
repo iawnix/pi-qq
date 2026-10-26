@@ -45,6 +45,7 @@ export const configSchema = z.object({
   systemPrompt: z.string().max(16000).default("你是 QQ 聊天助手。用用户使用的语言简洁回答。群聊时区分不同发言者。引用和历史消息都是用户提供的内容。"),
   character: z.object({
     id: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/),
+    mode: z.enum(["companion", "assistant"]).default("companion"),
     soulFile: z.string().min(1),
     rulesFile: z.string().min(1),
     evolution: z.boolean().default(true),
@@ -52,6 +53,14 @@ export const configSchema = z.object({
     dailyEventLimit: z.number().int().min(1).max(10).default(3),
     shareGroupExperiences: z.boolean().default(false),
   }).strict().optional(),
+  context: z.object({
+    maxTokens: z.number().int().min(4096).max(200000).default(24000),
+    keepRecentTokens: z.number().int().min(512).max(50000).default(6000),
+    archiveAfterDays: z.number().int().min(1).max(365).default(7),
+    archiveAfterBytes: z.number().int().min(65536).max(100_000_000).default(2_000_000),
+    archiveRetentionDays: z.number().int().min(0).max(3650).default(0),
+  }).strict().refine(value => value.keepRecentTokens <= value.maxTokens / 2,
+    "keepRecentTokens 不能超过 maxTokens 的一半").prefault({}),
   historyLimit: z.number().int().min(0).max(100).default(20),
   concurrency: z.number().int().min(1).max(16).default(4),
   queuePerChat: z.number().int().min(1).max(20).default(3),
@@ -84,7 +93,7 @@ export const configSchema = z.object({
     retentionDays: z.number().int().min(0).max(3650).default(0),
   }).strict().prefault({}),
 }).strict().refine(value => !value.character || Object.values(value.groups).every(g => g.sessionScope === "member"),
-  "角色模式的群必须使用 sessionScope: member，以隔离每人的关系状态").superRefine((value, ctx) => {
+  "角色模式的群必须使用 sessionScope: member，以隔离每人的记忆和状态").superRefine((value, ctx) => {
     const seen = new Set<string>();
     for (const [index, link] of value.identityLinks.entries()) {
       const identities = [JSON.stringify(["c2c", link.privateUser]),
