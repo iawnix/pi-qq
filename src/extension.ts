@@ -3,11 +3,18 @@ import { accessWarnings, readConfig } from "./config.js";
 import { QQService } from "./service.js";
 import { PiRunner } from "./agent.js";
 import { UserError } from "./content.js";
+import { hostQQTools } from "./qq-tools.js";
 
 export default function qqExtension(pi: ExtensionAPI): void {
   let service: QQService | undefined;
   let starting: Promise<QQService> | undefined;
   let controller: AbortController | undefined;
+  const requireService = () => {
+    if (!service || service.status !== "ready") throw new UserError("QQ 尚未就绪，请先 /qq start 并等待 ready。");
+    return service;
+  };
+  for (const tool of hostQQTools({ listGroups: () => requireService().listGroups(),
+    sendGroup: (id, text, signal) => requireService().sendGroup(id, text, signal) })) pi.registerTool(tool);
 
   const stop = async () => {
     controller?.abort();
@@ -17,9 +24,23 @@ export default function qqExtension(pi: ExtensionAPI): void {
   };
 
   pi.registerCommand("qq", {
-    description: "QQ 聊天：/qq start | stop | status | ids | memories",
+    description: "QQ 聊天：/qq start | stop | status | ids | groups | send 群OpenID 正文 | memories",
     handler: async (args, ctx) => {
       const command = args.trim() || "status";
+      if (command === "groups") {
+        try {
+          const groups = requireService().listGroups();
+          ctx.ui.notify(groups.length ? groups.map(g => `${g.name ?? "群"} ${g.groupId}\n回复：${g.replyMode}；主动发送：${g.allowProactive ? "允许" : "关闭"}；已收到 @ ${g.received.mentioned} 条、非 @ ${g.received.ordinary} 条`).join("\n\n") : "尚未配置群。", "info");
+        } catch (error) { ctx.ui.notify(error instanceof UserError ? error.message : "群状态读取失败。", "warning"); }
+        return;
+      }
+      if (command === "send" || command.startsWith("send ")) {
+        const match = /^send\s+(\S+)\s+([\s\S]+)$/.exec(command);
+        if (!match) { ctx.ui.notify("用法：/qq send 群OpenID 消息正文", "warning"); return; }
+        try { const id = await requireService().sendGroup(match[1]!, match[2]!); ctx.ui.notify(`已发送，消息编号：${id}`, "info"); }
+        catch (error) { ctx.ui.notify(error instanceof UserError ? error.message : "发送未确认成功，请检查群内结果及连接状态。", "warning"); }
+        return;
+      }
       if (command === "memories" || command.startsWith("memories ")) {
         if (!service) { ctx.ui.notify("请先 /qq start。", "warning"); return; }
         const [, action, id, ...extra] = command.split(/\s+/);
@@ -29,7 +50,7 @@ export default function qqExtension(pi: ExtensionAPI): void {
         return;
       }
       if (command === "status") {
-        ctx.ui.notify(`QQ: ${starting ? "starting" : service?.status ?? "stopped"}；本次服务已收到 ${service?.diagnostics().received ?? 0} 条消息。/qq ids 查看用户与群 OpenID。`, "info");
+        ctx.ui.notify(`QQ: ${starting ? "starting" : service?.status ?? "stopped"}；本次服务已收到 ${service?.diagnostics().received ?? 0} 条消息。/qq ids 查看用户与群 OpenID，/qq groups 查看全量群消息接收和回复模式。`, "info");
         return;
       }
       if (command === "ids") {
@@ -50,7 +71,7 @@ export default function qqExtension(pi: ExtensionAPI): void {
         return;
       }
       if (command !== "start") {
-        ctx.ui.notify("用法：/qq start | stop | status | ids | memories", "warning");
+        ctx.ui.notify("用法：/qq start | stop | status | ids | groups | send 群OpenID 正文 | memories", "warning");
         return;
       }
       if (starting || (service && service.status !== "stopped" && service.status !== "failed")) {

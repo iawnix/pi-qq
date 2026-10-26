@@ -8,6 +8,8 @@
   "groups": {
     "YOUR_GROUP_OPENID": {
       "requireMention": true,
+      "replyMode": "mention",
+      "allowProactive": false,
       "admins": [
         "YOUR_MEMBER_OPENID_IN_THIS_GROUP"
       ],

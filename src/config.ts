@@ -5,7 +5,15 @@ import { z } from "zod";
 
 const ids = z.array(z.string().trim().min(1)).default([]);
 const group = z.object({
+  name: z.string().max(100).optional(),
   requireMention: z.boolean().default(true),
+  replyMode: z.enum(["mention", "smart", "all"]).optional(),
+  allowProactive: z.boolean().default(false),
+  smartReply: z.object({
+    checkIntervalMs: z.number().int().min(1000).max(3600000).default(15000),
+    cooldownMs: z.number().int().min(0).max(3600000).default(60000),
+    maxPerHour: z.number().int().min(1).max(120).default(10),
+  }).strict().prefault({}),
   sessionScope: z.enum(["group", "member"]).default("group"),
   allowTools: z.boolean().default(false),
   admins: ids,

@@ -35,8 +35,13 @@ export class QQService {
   private received = 0;
   private identities = new Map<string, ObservedIdentity>();
 
-  diagnostics(): { received: number; identities: ObservedIdentity[] } {
-    return { received: this.received, identities: [...this.identities.values()].reverse().map(item => ({ ...item })) };
+  diagnostics() {
+    return { received: this.received, identities: [...this.identities.values()].reverse().map(item => ({ ...item })), groups: this.bridge.listGroups() };
+  }
+  listGroups() { return this.bridge.listGroups(); }
+  async sendGroup(groupId: string, text: string, signal?: AbortSignal): Promise<string> {
+    if (this.status !== "ready") throw new Error("QQ 当前未就绪，请先启动并等待连接完成。");
+    return this.bridge.sendGroup(groupId, text, signal);
   }
   manageMemories(action?: string, id?: string): Promise<string> { return this.bridge.manageMemories(action, id); }
 
@@ -122,6 +127,8 @@ export class QQService {
       const bot = (options.createGateway ?? (opts => new QQBot(opts)))({
         appId: config.appId, appSecret: secret, accountId: config.appId,
         transport: "websocket", tokenPrefetch: "sync", markdownSupport: false,
+        // GROUP_AND_C2C includes both GROUP_AT_MESSAGE_CREATE and GROUP_MESSAGE_CREATE.
+        // Receiving all group messages also requires the QQ-side group setting.
         intents: 1 << 25,
         reconnect: { maxAttempts: 20 },
         sessionPersistence: kvSessionPersistence({ store, accountId: config.appId }),

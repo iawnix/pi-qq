@@ -9,6 +9,7 @@ import { ModelRuntime, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { PiRunner } from "../src/agent.js";
 import { configSchema, readConfig } from "../src/config.js";
 import { config } from "./helpers.js";
+import { groupSendTool } from "../src/qq-tools.js";
 
 test("local tool configuration is opt-in, validates names and requires an existing absolute cwd", async () => {
   const cfg = config();
@@ -80,6 +81,23 @@ test("real Pi tools execute in configured cwd, remain scoped, obey revocation an
   assert.ok(!JSON.stringify(requests).includes("PRIVATE_WORKSPACE_INSTRUCTIONS"));
   const names = () => (requests.at(-1)!.tools ?? []).map(tool => tool.function.name).sort();
   assert.deepEqual(names(), [...cfg.localTools.names].sort());
+  const sent: string[] = [];
+  calls = [{ name: "qq_send_message", arguments: { text: "explicit requested message" } }];
+  await runner.run("qq-only", "Please send the requested text", "Only send as requested", signal, {
+    qqTools: [groupSendTool(async text => { sent.push(text); return "confirmed-receipt"; })],
+  });
+  assert.deepEqual(sent, ["explicit requested message"]);
+  assert.deepEqual(names(), ["qq_send_message"]);
+  assert.match(JSON.stringify(requests.at(-1)!.messages), /confirmed-receipt/);
+  await runner.run("qq-only", "Permissions now revoked", "No tools", signal);
+  assert.deepEqual(names(), []);
+  answer = '{"reply":true}';
+  assert.equal(await runner.shouldReply({ text: "大家喜欢什么书", history: [], character: "a quiet reader" }, signal), true);
+  assert.deepEqual(names(), []);
+  assert.doesNotMatch(JSON.stringify(requests.at(-1)!.messages), /PRIVATE_ALICE|explicit requested message/);
+  answer = '{"reply":"yes"}';
+  await assert.rejects(runner.shouldReply({ text: "hi", history: [], character: "reader" }, signal));
+  answer = "done";
   await runner.run("bob", "OTHER_MEMBER", "Chat", signal, enabled);
   assert.ok(!JSON.stringify(requests.at(-1)).includes("PRIVATE_ALICE"));
   // The deployed extension forwards requests through the host registry too.

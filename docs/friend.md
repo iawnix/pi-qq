@@ -62,6 +62,8 @@ chmod +x ~/Friend/start-friend.sh
 
 默认每个用户在不同场景仍独立。若希望同一个人私聊和群聊连续交流，配置 [identityLinks 完整同步](configuration.md#同一人的私聊与群聊完整同步)。它共享实际 Pi 会话和长期状态，机器人在已绑定群里也可以参考私聊内容；其他群成员不自动加入绑定。下文的“当前身份与场景”在启用绑定时指此人的全部已绑定场景。
 
+希望角色能听群聊、偶尔加入讨论时，可以在该群配置 `replyMode: "smart"`，并在手机 QQ 中允许机器人获取群内全部消息。需要通过 Pi 或明确聊天请求主动发群消息时，再开启 `allowProactive: true` 及 QQ 的群主动发言开关；见[群参与配置](configuration.md#群全量消息与选择性接话)。
+
 用 `./start-friend.sh` 启动，再在 Pi 中 `/model` 选择模型、`/qq start` 连接 QQ。脚本设置独立的 `PI_CODING_AGENT_DIR` 和 `--session-dir`，使用 `--no-extensions --no-skills --no-prompt-templates --no-themes`，只用 `-e` 加载 QQ 扩展。Pi 1.4 的显式扩展路径在关闭自动发现后仍有效。
 
 首次使用需在这个专用 Pi 环境配置模型及认证；已有自定义 provider 可以只迁移所需的 models.json 条目和对应认证，文件权限设为 0600，不复制全局扩展和技能。通过插件注册的 provider 不会自动存在于此环境，需改为独立模型配置或另行明确加载；不要把所有全局插件复制过来。使用普通 `pi` 命令不等同于这个隔离入口。独立 CLI 的 `agentDir` 也需指向同一专用目录。

@@ -16,6 +16,8 @@ test("Pi's actual extension loader loads source entry and registers command with
   assert.equal(loaded.extensions.length, 1);
   assert.ok(loaded.extensions[0]!.commands.has("qq"));
   assert.ok(loaded.extensions[0]!.handlers.has("session_shutdown"));
+  assert.ok(loaded.extensions[0]!.tools.has("qq_list_groups"));
+  assert.ok(loaded.extensions[0]!.tools.has("qq_send_message"));
 });
 
 test("extension starts with the host model and no model field or separate model files", async t => {
@@ -33,16 +35,21 @@ test("extension starts with the host model and no model field or separate model 
   const notices: string[] = [];
   let handler: Parameters<ExtensionAPI["registerCommand"]>[1]["handler"] | undefined;
   const api = {
+    registerTool: () => {},
     registerCommand: (_name: string, command: Parameters<ExtensionAPI["registerCommand"]>[1]) => { handler = command.handler; },
     on: () => () => {},
   } as unknown as ExtensionAPI;
   const ctx = { model, modelRegistry: registry, ui: { notify: (text: string) => { notices.push(text); } } } as unknown as ExtensionCommandContext;
   let starts = 0;
   let stops = 0;
+  const sends: Array<[string, string]> = [];
   t.mock.method(QQService, "start", async (...[_config, _report, options]: Parameters<typeof QQService.start>) => {
     starts++;
     assert.ok(options?.runner instanceof PiRunner);
-    return { status: "ready", stop: async () => { stops++; }, diagnostics: () => ({ received: 1, identities: [{ scope: "c2c", targetId: "test-openid", senderId: "test-openid", allowed: false }] }) } as unknown as QQService;
+    return { status: "ready", stop: async () => { stops++; },
+      listGroups: () => [{ groupId: "g", name: "Test group", replyMode: "smart", allowProactive: true, received: { mentioned: 1, ordinary: 2 } }],
+      sendGroup: async (id: string, text: string) => { sends.push([id, text]); return "receipt"; },
+      diagnostics: () => ({ received: 1, identities: [{ scope: "c2c", targetId: "test-openid", senderId: "test-openid", allowed: false }] }) } as unknown as QQService;
   });
   qqExtension(api);
   await handler!("start", ctx);
@@ -53,6 +60,13 @@ test("extension starts with the host model and no model field or separate model 
   assert.match(notices.at(-1)!, /未在白名单/);
   await handler!("status", ctx);
   assert.match(notices.at(-1)!, /收到 1 条消息/);
+  await handler!("groups", ctx);
+  assert.match(notices.at(-1)!, /非 @ 2 条/);
+  await handler!("send g hello\nworld", ctx);
+  assert.deepEqual(sends, [["g", "hello\nworld"]]);
+  assert.match(notices.at(-1)!, /receipt/);
+  await handler!("send g", ctx);
+  assert.equal(sends.length, 1);
   await handler!("stop", ctx);
   assert.equal(stops, 1);
   ctx.model = undefined;
