@@ -41,7 +41,7 @@ cp qqbot.example.json qqbot.json
 
 ### 2. 配置机器人
 
-编辑 `qqbot.json`，填写 `appId`、`appSecret`、`model.provider`、`model.id`，以及允许的用户和群。QQ 的 OpenID 不是 QQ 号码，私聊用户与群成员的标识也不通用。详见 [配置文档](docs/configuration.md)。
+编辑 `qqbot.json`，填写 `appId`、`appSecret`，以及允许的用户和群。作为 Pi 扩展使用时，默认跟随 Pi 当前模型和认证，不需要填写 `model`。QQ 的 OpenID 不是 QQ 号码，私聊用户与群成员的标识也不通用。详见 [配置文档](docs/configuration.md)。
 
 `appSecret` 直接填写机器人后台的 AppSecret，例如：
 
@@ -49,11 +49,7 @@ cp qqbot.example.json qqbot.json
 {
   "appId": "你的AppID",
   "appSecret": "你的AppSecret",
-  "allowUsers": ["你的私聊OpenID"],
-  "model": {
-    "provider": "你的Pi模型提供商",
-    "id": "你的Pi模型ID"
-  }
+  "allowUsers": ["你的私聊OpenID"]
 }
 ```
 
@@ -63,7 +59,7 @@ cp qqbot.example.json qqbot.json
 node dist/cli.js check --config ./qqbot.json
 ```
 
-`check` 验证本地配置、AppSecret 和模型注册情况，不调用 QQ 或模型接口。也可将 `appSecret` 留空，使用 `secretEnv` 指定的环境变量（默认 `QQBOT_APP_SECRET`）；两者都有值时环境变量优先。真实 `qqbot.json` 已被 Git 忽略，请勿把密钥填写到会提交的示例文件中。
+`check` 验证本地配置和 AppSecret；明确填写 `model` 时还会检查本地模型注册情况。不填写时，模型在 Pi 内启动时确定；终端检查不会尝试猜测正在运行的 Pi 模型。检查不调用 QQ 或模型接口。也可将 `appSecret` 留空，使用 `secretEnv` 指定的环境变量（默认 `QQBOT_APP_SECRET`）；两者都有值时环境变量优先。真实 `qqbot.json` 已被 Git 忽略，请勿把密钥填写到会提交的示例文件中。
 
 ### 3. 启动
 
@@ -75,9 +71,11 @@ export PI_QQ_CONFIG="$PWD/qqbot.json"
 pi
 ```
 
-在 Pi 中执行 `/qq start`。也可用 `pi -e ./src/extension.ts` 临时加载扩展。扩展不会自动连接 QQ，退出 Pi 时会停止服务。
+在 Pi 中用 `/model` 选择模型，再执行 `/qq start`。QQ 默认跟随当前选择，切换模型对后续开始处理的请求生效；正在处理的请求使用原模型。也可用 `pi -e ./src/extension.ts` 临时加载扩展。扩展不会自动连接 QQ，退出 Pi 时会停止服务。
 
 **作为独立服务**：
+
+独立进程没有宿主 Pi 会话；省略 `model` 时在启动时读取 Pi 保存的默认模型，也可在 JSON 中固定指定。模型及认证需在同一台电脑、同一用户下配置；详见[模型选择](docs/configuration.md#模型选择)。
 
 ```bash
 node dist/cli.js start --config ./qqbot.json
@@ -108,7 +106,7 @@ node dist/cli.js start --config ./qqbot.json
 
 群里的命令同样遵守 @ 规则，例如 `@机器人 /reset`。共享群的记忆和画像供全群使用，仅配置的管理员可修改。成员隔离模式下，每个人可管理自己的会话和记忆，但机器人发到群里的回复仍对群成员可见。
 
-`/reset` 保留旧历史文件；`/forget` 才会清理当前作用域的本地历史和指定记忆。普通发送图片用于提问，需先开启 `images.enabled` 并选择支持视觉输入的聊天模型；生成图片还需配置 `images.generationModel`。完整示例见[图片配置](docs/configuration.md#图片理解与回复)。
+`/reset` 保留旧历史文件；`/forget` 才会清理当前作用域的本地历史和指定记忆。普通发送图片用于提问，需先开启 `images.enabled` 并在 Pi 中选择支持视觉输入的聊天模型；生成图片还需配置 `images.generationModel`。完整示例见[图片配置](docs/configuration.md#图片理解与回复)。
 
 ## 文档
 

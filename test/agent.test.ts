@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBashTool, createReadTool, SessionManager } from "@earendil-works/pi-coding-agent";
+import { createBashTool, createReadTool, SessionManager, ModelRuntime, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { ConversationStore, PiRunner } from "../src/agent.js";
 import { config } from "./helpers.js";
 import sharp from "sharp";
@@ -29,7 +29,8 @@ test("session store reopens chat and reset preserves other chat namespaces", asy
 test("real Pi SDK with local mock model: no tools/private resources; restore, isolate and reset history", { timeout: 30000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), "pi-qq-agent-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const requests: Array<{ messages: Array<{ role: string; content: unknown }>; tools?: unknown[] }> = [];
+  const requests: Array<{ model: string; messages: Array<{ role: string; content: unknown }>; tools?: unknown[] }> = [];
+  const authorization: Array<string | undefined> = [];
   const image = { type: "image" as const, mimeType: "image/png", data: (await sharp({ create: { width: 8, height: 8, channels: 3, background: "red" } }).png().toBuffer()).toString("base64") };
   let answer = "local answer";
   const server = createServer(async (req, res) => {
@@ -37,6 +38,7 @@ test("real Pi SDK with local mock model: no tools/private resources; restore, is
     for await (const chunk of req) parts.push(Buffer.from(chunk));
     const request = JSON.parse(Buffer.concat(parts).toString());
     requests.push(request);
+    authorization.push(req.headers.authorization);
     if (request.stream === false) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ id: "image-result", choices: [{ message: { role: "assistant", content: "generated", images: [{ image_url: { url: `data:image/png;base64,${image.data}` } }] } }] }));
@@ -112,4 +114,44 @@ test("real Pi SDK with local mock model: no tools/private resources; restore, is
   assert.ok(JSON.stringify(requests.at(-1)).includes("draw a cat"));
   assert.ok(JSON.stringify(requests.at(-1)).includes("data:image/png"));
   assert.ok(!JSON.stringify(requests.at(-1)).includes("FIRST_CHAT_PRIVATE"));
+  // Standalone startup uses Pi's saved default when no model override is given.
+  await writeFile(join(cfg.agentDir, "settings.json"), JSON.stringify({ defaultProvider: "test", defaultModel: "text-only" }));
+  const defaultRunner = await PiRunner.create({ ...cfg, model: undefined });
+  await defaultRunner.run("saved-default", "SAVED_DEFAULT", "Chat instructions", signal);
+  assert.equal(requests.at(-1)!.model, "text-only");
+
+  // Host-only provider and credentials: neither is present in the QQ config directory.
+  const hostRuntime = await ModelRuntime.create({ modelsPath: null, authPath: join(root, "host-auth.json"), refreshOnCreate: false, allowModelNetwork: false });
+  const registry = new ModelRegistry(hostRuntime);
+  registry.registerProvider("host-only", {
+    api: "openai-completions", baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    models: ["host-a", "host-b"].map(id => ({ id, name: id, reasoning: false, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 1024 })),
+  });
+  await hostRuntime.setRuntimeApiKey("host-only", "host-key-one");
+  let current = registry.find("host-only", "host-a");
+  const hostedConfig = { ...cfg, model: undefined, agentDir: join(root, "unused-agent-dir"), images: { ...cfg.images, generationModel: undefined } };
+  const hosted = PiRunner.fromHost(hostedConfig, () => ({ model: current, modelRegistry: registry }));
+  answer = "host answer";
+  await hosted.run("host-chat", "HOST_FIRST", "Chat instructions", signal, { images: [image] });
+  assert.equal(requests.at(-1)!.model, "host-a");
+  assert.equal(authorization.at(-1), "Bearer host-key-one");
+  assert.ok(JSON.stringify(requests.at(-1)).includes("data:image/"));
+  current = registry.find("host-only", "host-b");
+  await hostRuntime.setRuntimeApiKey("host-only", "host-key-two");
+  await hosted.run("host-chat", "HOST_SECOND", "Chat instructions", signal);
+  assert.equal(requests.at(-1)!.model, "host-b");
+  assert.equal(authorization.at(-1), "Bearer host-key-two");
+  assert.ok(JSON.stringify(requests.at(-1)).includes("HOST_FIRST"));
+  assert.equal(requests.at(-1)!.tools?.length ?? 0, 0);
+  assert.ok(!JSON.stringify(requests.at(-1)).includes("OWNER_"));
+  const pinned = PiRunner.fromHost({ ...hostedConfig, model: { provider: "host-only", id: "host-a" } }, () => ({ model: current, modelRegistry: registry }));
+  await pinned.run("host-pinned", "PINNED", "Chat instructions", signal);
+  assert.equal(requests.at(-1)!.model, "host-a");
+  assert.throws(() => PiRunner.fromHost(hostedConfig, () => ({ model: undefined, modelRegistry: registry })), /\/model/);
+  registry.registerVirtualModel({ provider: "host-only", id: "auto", name: "Host router", contextWindow: 32000, maxTokens: 1024,
+    route: () => ({ model: registry.find("host-only", "host-b")!, thinkingLevel: "off" }),
+  });
+  current = registry.find("host-only", "auto");
+  await hosted.run("host-router", "ROUTED", "Chat instructions", signal);
+  assert.equal(requests.at(-1)!.model, "host-b");
 });

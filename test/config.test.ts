@@ -4,6 +4,8 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readConfig, readSecret } from "../src/config.js";
 import { config } from "./helpers.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 test("JSON AppSecret works without an environment variable; environment takes precedence", async t => {
   const cfg = config();
@@ -25,6 +27,15 @@ test("JSON AppSecret works without an environment variable; environment takes pr
   assert.equal(readSecret(loaded), "fake-file-secret");
   assert.throws(() => readSecret(cfg), /请填写 appSecret/);
   assert.throws(() => readSecret({ ...cfg, appSecret: "  " }), /请填写 appSecret/);
+});
+
+test("CLI check accepts a host-following configuration without local Pi model setup", async () => {
+  const cfg = config();
+  const path = join(cfg.dataDir, "qqbot.json");
+  await writeFile(path, JSON.stringify({ appId: "test", appSecret: "fake", agentDir: join(cfg.dataDir, "empty") }));
+  const result = await promisify(execFile)(process.execPath, ["--import", "tsx", "src/cli.ts", "check", "--config", path]);
+  assert.match(result.stdout, /Pi 扩展将跟随当前模型/);
+  assert.match(result.stdout, /尚未验证模型/);
 });
 
 test("configuration errors do not expose inline secrets", async () => {

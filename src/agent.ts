@@ -9,6 +9,7 @@ import type { Config } from "./config.js";
 import { storageKey } from "./conversation.js";
 import { UserError, type ChatImage, type MemoryCandidate } from "./content.js";
 import { z } from "zod";
+import { hostSessionRuntime, type HostModelContext } from "./host-model.js";
 
 export interface AgentRunner {
   run(key: string, prompt: string, systemPrompt: string, signal: AbortSignal, options?: { images?: ChatImage[] }): Promise<string>;
@@ -66,11 +67,14 @@ export class ConversationStore {
 
 export class PiRunner implements AgentRunner {
   private store: ConversationStore;
-  constructor(private config: Config, private modelRuntime: ModelRuntime) {
+  constructor(private config: Config, private modelRuntime?: ModelRuntime, private host?: () => HostModelContext) {
     this.store = new ConversationStore(config.dataDir);
   }
 
   static async create(config: Config): Promise<PiRunner> {
+    const settings = SettingsManager.create(config.dataDir, config.agentDir, { projectTrusted: false });
+    const selected = config.model ?? { provider: settings.getDefaultProvider() ?? "", id: settings.getDefaultModel() ?? "" };
+    if (!selected.provider || !selected.id) throw new Error("配置中的 Pi 模型不存在：请先在 Pi 中选择默认模型，或在独立 CLI 配置中填写 model。");
     const runtime = await ModelRuntime.create({
       authPath: join(config.agentDir, "auth.json"),
       modelsPath: join(config.agentDir, "models.json"),
@@ -78,11 +82,29 @@ export class PiRunner implements AgentRunner {
       refreshOnCreate: false,
       allowModelNetwork: false,
     });
-    if (!runtime.getModel(config.model.provider, config.model.id)) throw new Error("配置中的 Pi 模型不存在，请核对 provider 和 id");
+    if (!runtime.getModel(selected.provider, selected.id)) throw new Error("配置中的 Pi 模型不存在，请核对 provider 和 id；Pi 扩展可删除 model 字段以跟随当前模型。");
     if (config.images.generationModel && !runtime.getModelOfType("image", config.images.generationModel.provider, config.images.generationModel.id)) {
       throw new Error("配置中的 Pi 模型不存在：图片生成模型未注册为 image 类型");
     }
-    return new PiRunner(config, runtime);
+    return new PiRunner({ ...config, model: selected }, runtime);
+  }
+
+  static fromHost(config: Config, host: () => HostModelContext): PiRunner {
+    const runner = new PiRunner(config, undefined, host);
+    runner.hostSelection();
+    const selected = config.images.generationModel;
+    if (selected && !host().modelRegistry.getModelOfType("image", selected.provider, selected.id)) {
+      throw new UserError("Pi 中未注册配置指定的图片生成模型。");
+    }
+    return runner;
+  }
+
+  private hostSelection() {
+    const context = this.host!();
+    const model = this.config.model
+      ? context.modelRegistry.find(this.config.model.provider, this.config.model.id) : context.model;
+    if (!model) throw new UserError(this.config.model ? "Pi 中找不到指定模型；可删除 model 字段以跟随 Pi 当前模型。" : "请先在 Pi 中用 /model 选择聊天模型，再执行 /qq start。");
+    return { model, registry: context.modelRegistry };
   }
 
   reset(key: string): Promise<void> { return this.store.reset(key); }
@@ -91,10 +113,11 @@ export class PiRunner implements AgentRunner {
   async generateImage(prompt: string, images: ChatImage[], signal: AbortSignal): Promise<ChatImage[]> {
     const selected = this.config.images.generationModel;
     if (!selected) throw new UserError("尚未配置图片生成模型。");
-    const model = this.modelRuntime.getModelOfType("image", selected.provider, selected.id);
+    const runtime = this.host ? this.host().modelRegistry : this.modelRuntime!;
+    const model = runtime.getModelOfType("image", selected.provider, selected.id);
     if (!model) throw new UserError("图片生成模型不可用。");
     signal.throwIfAborted();
-    const result = await this.modelRuntime.generateImages(model, { input: [{ type: "text", text: prompt }, ...images] }, { signal, maxRetries: 0 });
+    const result = await runtime.generateImages(model, { input: [{ type: "text", text: prompt }, ...images] }, { signal, maxRetries: 0 });
     signal.throwIfAborted();
     if (result.stopReason !== "stop") throw new Error("Image generation failed");
     const output = result.output.filter((item): item is ChatImage => item.type === "image").slice(0, 1);
@@ -116,16 +139,19 @@ export class PiRunner implements AgentRunner {
 
   private async runSession(key: string | undefined, prompt: string, systemPrompt: string, signal: AbortSignal, options: { images?: ChatImage[] } = {}): Promise<string> {
     signal.throwIfAborted();
+    // Snapshot the model when work starts. A host switch affects subsequent jobs.
+    const selection = this.host ? this.hostSelection() : undefined;
+    const selected = selection?.model ?? (this.config.model && this.modelRuntime?.getModel(this.config.model.provider, this.config.model.id));
+    if (!selected) throw new Error("模型不可用");
+    if (options.images?.length && !selected.input.includes("image")) throw new UserError("当前聊天模型不支持图片，请在 Pi 中选择支持视觉输入的模型。");
+    const { model, runtime } = selection ? await hostSessionRuntime(selection.model, selection.registry) : { model: selected, runtime: this.modelRuntime! };
     const stored = key === undefined ? undefined : await this.store.open(key);
     const cwd = stored?.cwd ?? this.config.dataDir;
     signal.throwIfAborted();
-    const model = this.modelRuntime.getModel(this.config.model.provider, this.config.model.id);
-    if (!model) throw new Error("模型不可用");
-    if (options.images?.length && !model.input.includes("image")) throw new UserError("当前聊天模型不支持图片，请配置支持视觉输入的模型。");
     const { session } = await createAgentSession({
       cwd,
       agentDir: this.config.agentDir,
-      modelRuntime: this.modelRuntime,
+      modelRuntime: runtime,
       model,
       thinkingLevel: "off",
       // Pi 1.3+ can restore transcript tools; keep the explicit empty allowlist

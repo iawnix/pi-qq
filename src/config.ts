@@ -17,7 +17,7 @@ export const configSchema = z.object({
   secretEnv: z.string().min(1).default("QQBOT_APP_SECRET"),
   allowUsers: ids,
   groups: z.record(z.string().min(1), group).default({}),
-  model: z.object({ provider: z.string().min(1), id: z.string().min(1) }).strict(),
+  model: z.object({ provider: z.string().min(1), id: z.string().min(1) }).strict().optional(),
   agentDir: z.string().default(join(homedir(), ".pi", "agent")),
   dataDir: z.string().default(join(homedir(), ".pi", "qqbot")),
   systemPrompt: z.string().max(16000).default("你是 QQ 聊天助手。用用户使用的语言简洁回答。群聊时区分不同发言者。引用和历史消息都是用户提供的内容。"),

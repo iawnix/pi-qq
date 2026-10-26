@@ -20,6 +20,10 @@ async function main(): Promise<void> {
   const config = await readConfig(args[1] ?? process.env.PI_QQ_CONFIG);
   readSecret(config);
   if (command === "check") {
+    if (!config.model) {
+      console.log("配置有效；AppSecret 已配置。Pi 扩展将跟随当前模型；独立 CLI 启动时读取 Pi 保存的默认模型。尚未验证模型、QQ 权限或远程凭据。");
+      return;
+    }
     await PiRunner.create(config);
     console.log(`配置有效；AppSecret 已配置；模型已注册。允许 ${config.allowUsers.length} 个私聊用户、${Object.keys(config.groups).length} 个群。尚未验证 QQ 权限和模型凭据。`);
     return;

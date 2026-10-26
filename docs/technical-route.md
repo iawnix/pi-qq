@@ -18,11 +18,13 @@
 
 从初版的 1.2.0 升级后，所用的 ModelRuntime、资源加载器、会话创建和扩展注册接口保持兼容。1.3/1.4 调整了恢复会话时的工具加载行为，因此继续显式设置空工具列表和 `noTools: "all"`，并通过带有历史 read/bash 声明的真实 SDK 集成测试验证它们不会重新启用。上游已将内部 Pi 依赖固定为同一发布版本，本项目锁文件也统一到 1.4.0。此适配不修改宿主 Pi 安装。
 
-使用 `ModelRuntime.create`、`createAgentSession` 和 `SessionManager.continueRecent`。每次请求加载对应聊天的持久会话，完成后释放 AgentSession；同一聊天由队列保证串行。复用本机模型配置及认证，但显式传入空资源加载器与 `tools: []`、`noTools: "all"`，从源头阻止聊天进程发现本机扩展和工作区上下文。
+使用 `ModelRuntime.create`、`createAgentSession` 和 `SessionManager.continueRecent`。每次请求加载对应聊天的持久会话，完成后释放 AgentSession；同一聊天由队列保证串行。扩展默认跟随宿主当前模型，并通过宿主 ModelRegistry 处理请求与认证；独立 CLI 读取本机模型配置、认证及保存的默认模型。两种入口都显式传入空资源加载器与 `tools: []`、`noTools: "all"`，从源头阻止聊天进程发现本机扩展和工作区上下文。
 
 Pi 的终端主会话不承载 QQ 消息。否则群聊可能读取终端上下文，多个聊天也会互相覆盖。会话键采用 `JSON.stringify([appId, scope, targetId])`，成员隔离模式使用 `[appId, "group-member", groupId, senderId]`，在磁盘上哈希成目录名。群模式变化或全群重置增加持久化 epoch；普通重置通过原子切换会话代次实现，均保留原历史。长期记忆使用不含 epoch 的独立作用域，重置不丢失记忆。
 
 Pi 的 `prompt()` 返回后仍需检查最终 assistant 消息：模型错误可能表现为 `stopReason: error`，而不是 Promise rejection。取消会等待 `session.abort()` 完成，之后才 `dispose()` 并允许队列继续。
+
+扩展为每次开始处理的请求取得宿主模型快照，通过一个仅存在内存中的 provider 将独立 AgentSession 的请求转交宿主 `ModelRegistry.streamSimple`。该 provider 不保存密钥，不读取另一份模型配置；OAuth 刷新、运行时凭据和自定义 provider 均由宿主处理。局部模型使用内部 transport API 标识，避免在独立 runtime 中重复路由宿主虚拟模型；虚拟路由采用宿主的 direct 请求语义，不共享终端的路由状态。旧对话恢复后仍显式选择本次模型，避免历史模型覆盖宿主当前选择。显式配置 `model` 时固定使用指定模型。
 
 ## 数据与控制流程
 

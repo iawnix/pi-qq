@@ -18,7 +18,8 @@ export const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 export function config() {
   const dataDir = mkdtempSync(join(tmpdir(), "pi-qq-config-test-"));
   directories.push(dataDir);
-  return configSchema.parse({ appId: "app", dataDir, allowUsers: ["alice", "bob"], groups: { g: { admins: ["admin"] } }, model: { provider: "test", id: "test" } });
+  const parsed = configSchema.parse({ appId: "app", dataDir, allowUsers: ["alice", "bob"], groups: { g: { admins: ["admin"] } }, model: { provider: "test", id: "test" } });
+  return { ...parsed, model: parsed.model! };
 }
 let id = 0;
 export function message(overrides: Partial<QQBotInboundMessage> = {}): QQBotInboundMessage {

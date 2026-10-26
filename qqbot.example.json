@@ -15,10 +15,6 @@
       "sessionScope": "member"
     }
   },
-  "model": {
-    "provider": "YOUR_PI_PROVIDER",
-    "id": "YOUR_PI_MODEL_ID"
-  },
   "historyLimit": 20,
   "concurrency": 4,
   "queuePerChat": 3,

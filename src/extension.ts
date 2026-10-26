@@ -1,6 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readConfig } from "./config.js";
 import { QQService } from "./service.js";
+import { PiRunner } from "./agent.js";
+import { UserError } from "./content.js";
 
 export default function qqExtension(pi: ExtensionAPI): void {
   let service: QQService | undefined;
@@ -15,7 +17,7 @@ export default function qqExtension(pi: ExtensionAPI): void {
   };
 
   pi.registerCommand("qq", {
-    description: "QQ 文本聊天：/qq start | stop | status",
+    description: "QQ 聊天：/qq start | stop | status",
     handler: async (args, ctx) => {
       const command = args.trim() || "status";
       if (command === "status") {
@@ -38,12 +40,14 @@ export default function qqExtension(pi: ExtensionAPI): void {
       controller = new AbortController();
       const signal = controller.signal;
       starting = readConfig(process.env.PI_QQ_CONFIG).then(config => QQService.start(config,
-        code => ctx.ui.notify(`QQ: ${code}`, code.endsWith("failed") ? "error" : "info"), { signal }));
+        code => ctx.ui.notify(`QQ: ${code}`, code.endsWith("failed") ? "error" : "info"), {
+          signal, runner: PiRunner.fromHost(config, () => ({ model: ctx.model, modelRegistry: ctx.modelRegistry })),
+        }));
       try {
         service = await starting;
         ctx.ui.notify(`QQ: ${service.status}，使用 /qq status 查看状态`, "info");
-      } catch {
-        ctx.ui.notify("QQ 启动失败，请用 pi-qq check 检查配置，并确认没有重复启动。", "error");
+      } catch (error) {
+        ctx.ui.notify(error instanceof UserError ? error.message : "QQ 启动失败，请用 pi-qq check 检查配置，并确认没有重复启动。", "error");
       } finally { starting = undefined; }
     },
   });
