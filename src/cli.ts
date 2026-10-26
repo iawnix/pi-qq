@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { PiRunner } from "./agent.js";
-import { defaultConfigPath, readConfig, readSecret } from "./config.js";
+import { accessWarnings, defaultConfigPath, readConfig, readSecret } from "./config.js";
 import { QQService } from "./service.js";
 
 const usage = `pi-qq start|check [--config <文件>]
@@ -19,6 +19,7 @@ async function main(): Promise<void> {
   }
   const config = await readConfig(args[1] ?? process.env.PI_QQ_CONFIG);
   readSecret(config);
+  for (const warning of accessWarnings(config)) console.error(`配置提示：${warning}`);
   if (command === "check") {
     if (!config.model) {
       console.log("配置有效；AppSecret 已配置。Pi 扩展将跟随当前模型；独立 CLI 启动时读取 Pi 保存的默认模型。尚未验证模型、QQ 权限或远程凭据。");

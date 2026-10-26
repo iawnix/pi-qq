@@ -61,6 +61,8 @@ node dist/cli.js check --config ./qqbot.json
 
 `check` 验证本地配置和 AppSecret；明确填写 `model` 时还会检查本地模型注册情况。不填写时，模型在 Pi 内启动时确定；终端检查不会尝试猜测正在运行的 Pi 模型。检查不调用 QQ 或模型接口。也可将 `appSecret` 留空，使用 `secretEnv` 指定的环境变量（默认 `QQBOT_APP_SECRET`）；两者都有值时环境变量优先。真实 `qqbot.json` 已被 Git 忽略，请勿把密钥填写到会提交的示例文件中。
 
+还不知道 OpenID 时，可以先将 `allowUsers` 设为 `[]`、`groups` 设为 `{}`。启动后用自己的 QQ 私聊机器人（或在测试群里 @ 它），再在 **Pi 中**执行 `/qq ids`。将看到的真实 ID 填入配置，然后 `/qq stop`、`/qq start` 重启服务。未加入白名单前不会回复；不要保留示例里的 `YOUR_...` 字符串。
+
 ### 3. 启动
 
 **作为 Pi 扩展**：
@@ -88,7 +90,8 @@ node dist/cli.js start --config ./qqbot.json
 | 位置 | 命令 | 功能 |
 |---|---|---|
 | Pi | `/qq start` | 启动 QQ 服务 |
-| Pi | `/qq status` | 查看服务状态 |
+| Pi | `/qq status` | 查看服务状态及收到的消息数 |
+| Pi | `/qq ids` | 查看最近收到的私聊用户、群和群成员 OpenID |
 | Pi | `/qq stop` | 停止服务并取消请求 |
 | QQ | `/help` | 查看聊天帮助 |
 | QQ | `/stop` | 取消自己的请求；共享群管理员可停止当前群会话 |

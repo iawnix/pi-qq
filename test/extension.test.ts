@@ -42,12 +42,17 @@ test("extension starts with the host model and no model field or separate model 
   t.mock.method(QQService, "start", async (...[_config, _report, options]: Parameters<typeof QQService.start>) => {
     starts++;
     assert.ok(options?.runner instanceof PiRunner);
-    return { status: "ready", stop: async () => { stops++; } } as unknown as QQService;
+    return { status: "ready", stop: async () => { stops++; }, diagnostics: () => ({ received: 1, identities: [{ scope: "c2c", targetId: "test-openid", senderId: "test-openid", allowed: false }] }) } as unknown as QQService;
   });
   qqExtension(api);
   await handler!("start", ctx);
   assert.equal(starts, 1);
   assert.ok(notices.some(text => text.includes("ready")));
+  await handler!("ids", ctx);
+  assert.match(notices.at(-1)!, /test-openid/);
+  assert.match(notices.at(-1)!, /未在白名单/);
+  await handler!("status", ctx);
+  assert.match(notices.at(-1)!, /收到 1 条消息/);
   await handler!("stop", ctx);
   assert.equal(stops, 1);
   ctx.model = undefined;

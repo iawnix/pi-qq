@@ -85,7 +85,19 @@ node dist/cli.js start --config ./qqbot.json
 | `groups` 的键 | 群消息 `group_openid` |
 | 群内 `admins` | 该群消息 `author.member_openid` |
 
-OpenID 可从平台调试事件中获取，不是 QQ 号码。私聊 OpenID 和群成员 OpenID 不保证相同。白名单为空时不处理消息；加入群白名单后，该群所有成员均可触发聊天。
+OpenID 可从 Pi 中的 `/qq ids` 或平台调试事件中获取，不是 QQ 号码。私聊 OpenID 和群成员 OpenID 不保证相同。白名单为空时不处理消息；加入群白名单后，该群所有成员均可触发聊天。
+
+### 获取自己的 OpenID
+
+1. 在 Pi 中执行 `/qq start`。
+2. 用自己的 QQ 私聊机器人，或在测试群中 @ 机器人发送一条测试消息。
+3. 回到 Pi 执行 `/qq ids`，查看刚才的私聊用户 OpenID，或群 OpenID 与发言成员 OpenID。
+4. 将私聊 OpenID 填入 `allowUsers`；群 OpenID 用作 `groups` 的键。只有确实应拥有管理权限的成员才填入该群 `admins`。
+5. 执行 `/qq stop`、`/qq start`，重新加载配置后再测试回复。
+
+`/qq ids` 在白名单过滤前观察身份，只在本地显示最近 20 组身份及是否命中白名单，不自动修改权限、不保存消息正文。记录只在内存中，服务重启后清空。请确认 ID 对应自己的测试消息，不要把其他陌生发言者直接加入白名单。
+
+`/qq status` 显示本次服务收到的消息数。若始终为 0，需要检查 QQ 平台的测试成员、测试群、消息权限及是否发给了正确的机器人；若已收到而 `/qq ids` 标记未在白名单，先修正配置。保留 `YOUR_C2C_USER_OPENID` 或 `YOUR_GROUP_OPENID` 不会匹配真实用户或群，现在 `check` 和 `/qq start` 会对此给出提示。
 
 每个群支持以下设置：
 

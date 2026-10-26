@@ -74,3 +74,11 @@ export function readSecret(config: Config): string {
   if (!secret) throw new Error("QQ 配置无效: 请填写 appSecret 或设置密钥环境变量。");
   return secret;
 }
+
+export function accessWarnings(config: Config): string[] {
+  const warnings: string[] = [];
+  if (config.allowUsers.some(id => id.startsWith("YOUR_"))) warnings.push("allowUsers 仍有示例 OpenID，实际私聊用户不会匹配；启动后发送测试消息，再在 Pi 中用 /qq ids 查看真实 OpenID。");
+  if (Object.keys(config.groups).some(id => id.startsWith("YOUR_"))) warnings.push("groups 仍有示例群 OpenID，实际群消息不会匹配；在群里 @ 机器人发送测试消息，再用 /qq ids 查看。");
+  if (!config.allowUsers.length && !Object.keys(config.groups).length) warnings.push("当前没有允许的用户或群，机器人不会回复。可先用 /qq ids 获取测试消息的 OpenID。");
+  return warnings;
+}

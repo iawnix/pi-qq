@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { readConfig, readSecret } from "../src/config.js";
+import { accessWarnings, readConfig, readSecret } from "../src/config.js";
 import { config } from "./helpers.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -36,6 +36,19 @@ test("CLI check accepts a host-following configuration without local Pi model se
   const result = await promisify(execFile)(process.execPath, ["--import", "tsx", "src/cli.ts", "check", "--config", path]);
   assert.match(result.stdout, /Pi 扩展将跟随当前模型/);
   assert.match(result.stdout, /尚未验证模型/);
+  assert.match(result.stderr, /没有允许的用户或群/);
+});
+
+test("sample OpenIDs are reported without printing configured credentials", () => {
+  const cfg = config();
+  assert.deepEqual(accessWarnings(cfg), []);
+  cfg.allowUsers = ["YOUR_C2C_USER_OPENID"];
+  cfg.groups = { YOUR_GROUP_OPENID: cfg.groups.g! };
+  cfg.appSecret = "DO_NOT_PRINT_SECRET";
+  const warnings = accessWarnings(cfg);
+  assert.equal(warnings.length, 2);
+  assert.match(warnings.join(" "), /\/qq ids/);
+  assert.ok(!warnings.join(" ").includes(cfg.appSecret));
 });
 
 test("configuration errors do not expose inline secrets", async () => {

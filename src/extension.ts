@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { readConfig } from "./config.js";
+import { accessWarnings, readConfig } from "./config.js";
 import { QQService } from "./service.js";
 import { PiRunner } from "./agent.js";
 import { UserError } from "./content.js";
@@ -17,11 +17,23 @@ export default function qqExtension(pi: ExtensionAPI): void {
   };
 
   pi.registerCommand("qq", {
-    description: "QQ 聊天：/qq start | stop | status",
+    description: "QQ 聊天：/qq start | stop | status | ids",
     handler: async (args, ctx) => {
       const command = args.trim() || "status";
       if (command === "status") {
-        ctx.ui.notify(`QQ: ${starting ? "starting" : service?.status ?? "stopped"}`, "info");
+        ctx.ui.notify(`QQ: ${starting ? "starting" : service?.status ?? "stopped"}；本次服务已收到 ${service?.diagnostics().received ?? 0} 条消息。/qq ids 查看用户与群 OpenID。`, "info");
+        return;
+      }
+      if (command === "ids") {
+        const identities = service?.diagnostics().identities ?? [];
+        if (!identities.length) {
+          ctx.ui.notify("还没有收到用户消息。先执行 /qq start，再用 QQ 私聊机器人或在群里 @ 它发一条消息，然后重新执行 /qq ids。若一直收不到，请检查 QQ 平台测试成员、测试群及消息权限。", "info");
+          return;
+        }
+        const rows = identities.map(item => item.scope === "c2c"
+          ? `私聊 ${item.allowed ? "已在白名单" : "未在白名单"}\nallowUsers 中填写：${JSON.stringify(item.senderId)}`
+          : `群聊 ${item.allowed ? "已在白名单" : "未在白名单"}\ngroups 的群键：${JSON.stringify(item.targetId)}\n本次发言成员 OpenID：${JSON.stringify(item.senderId)}`);
+        ctx.ui.notify(`最近收到的身份（仅在 Pi 本地显示，不会自动授权）：\n\n${rows.join("\n\n")}\n\n确认是你的测试消息后填写 qqbot.json，再用 /qq stop、/qq start 重新加载配置。`, "info");
         return;
       }
       if (command === "stop") {
@@ -30,7 +42,7 @@ export default function qqExtension(pi: ExtensionAPI): void {
         return;
       }
       if (command !== "start") {
-        ctx.ui.notify("用法：/qq start | stop | status", "warning");
+        ctx.ui.notify("用法：/qq start | stop | status | ids", "warning");
         return;
       }
       if (starting || (service && service.status !== "stopped" && service.status !== "failed")) {
@@ -39,10 +51,13 @@ export default function qqExtension(pi: ExtensionAPI): void {
       }
       controller = new AbortController();
       const signal = controller.signal;
-      starting = readConfig(process.env.PI_QQ_CONFIG).then(config => QQService.start(config,
-        code => ctx.ui.notify(`QQ: ${code}`, code.endsWith("failed") ? "error" : "info"), {
-          signal, runner: PiRunner.fromHost(config, () => ({ model: ctx.model, modelRegistry: ctx.modelRegistry })),
-        }));
+      starting = readConfig(process.env.PI_QQ_CONFIG).then(config => {
+        for (const warning of accessWarnings(config)) ctx.ui.notify(warning, "warning");
+        return QQService.start(config,
+          code => ctx.ui.notify(`QQ: ${code}`, code.endsWith("failed") ? "error" : "info"), {
+            signal, runner: PiRunner.fromHost(config, () => ({ model: ctx.model, modelRegistry: ctx.modelRegistry })),
+          });
+      });
       try {
         service = await starting;
         ctx.ui.notify(`QQ: ${service.status}，使用 /qq status 查看状态`, "info");
