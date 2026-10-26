@@ -9,13 +9,13 @@ import { MemoryStore } from "../src/memory.js";
 import { config, deferred, groupMessage, message, tick } from "./helpers.js";
 
 function fixture(cfg = config(), media?: MediaInput, memory?: MemoryStore) {
-  const calls: Array<{ key: string; prompt: string; images: ChatImage[] }> = [];
+  const calls: Array<{ key: string; prompt: string; images: ChatImage[]; allowLocalTools?: boolean }> = [];
   const replies: string[] = [];
   const sent: Array<{ target: ReplyTarget; buffer: Buffer }> = [];
   const resets: string[] = [];
   const purges: string[] = [];
   const runner: AgentRunner = {
-    run: async (key, prompt, _system, _signal, options) => { calls.push({ key, prompt, images: options?.images ?? [] }); return "answer"; },
+    run: async (key, prompt, _system, _signal, options) => { calls.push({ key, prompt, images: options?.images ?? [], allowLocalTools: options?.allowLocalTools }); return "answer"; },
     reset: async key => { resets.push(key); },
     purge: async key => { purges.push(key); },
   };
@@ -233,4 +233,29 @@ test("cancelled queued image request never downloads, and partial upload is not 
   assert.equal(sent, 1);
   assert.match(replies.at(-1)!, /处理失败/);
   await enabled.stop();
+});
+
+test("local tools require both chat admission and explicit scope grants, including non-admin group members", async () => {
+  const cfg = config();
+  cfg.localTools = { enabled: true, cwd: cfg.dataDir, allowUsers: ["alice", "stranger"], names: ["read", "write", "bash"] };
+  const f = fixture(cfg);
+  await f.bridge.handle(message());
+  await f.bridge.handle(message({ senderId: "bob", replyTarget: { scope: "c2c", targetId: "bob" } }));
+  await f.bridge.handle(groupMessage({ senderId: "admin" }));
+  assert.deepEqual(f.calls.map(call => call.allowLocalTools), [true, false, false]);
+  cfg.groups.g!.allowTools = true;
+  await f.bridge.handle(groupMessage({ senderId: "bob" }));
+  assert.equal(f.calls.at(-1)!.allowLocalTools, true);
+  await f.bridge.handle(message({ senderId: "stranger", replyTarget: { scope: "c2c", targetId: "stranger" } }));
+  await f.bridge.handle(groupMessage({ replyTarget: { scope: "group", targetId: "unapproved" } }));
+  await f.bridge.handle(groupMessage({ rawEventType: "GROUP_MESSAGE_CREATE" }));
+  assert.equal(f.calls.length, 4);
+  await f.bridge.handle(groupMessage({ content: "/tools" }));
+  assert.match(f.replies.at(-1)!, /本机工具已启用/);
+  assert.equal(f.calls.length, 4);
+  cfg.localTools.enabled = false;
+  await f.bridge.handle(groupMessage());
+  await f.bridge.handle(message());
+  assert.deepEqual(f.calls.slice(-2).map(call => call.allowLocalTools), [false, false]);
+  await f.bridge.stop();
 });

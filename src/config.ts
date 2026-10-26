@@ -1,12 +1,13 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 
 const ids = z.array(z.string().trim().min(1)).default([]);
 const group = z.object({
   requireMention: z.boolean().default(true),
   sessionScope: z.enum(["group", "member"]).default("group"),
+  allowTools: z.boolean().default(false),
   admins: ids,
   prompt: z.string().max(8000).default(""),
 }).strict();
@@ -17,6 +18,13 @@ export const configSchema = z.object({
   secretEnv: z.string().min(1).default("QQBOT_APP_SECRET"),
   allowUsers: ids,
   groups: z.record(z.string().min(1), group).default({}),
+  localTools: z.object({
+    enabled: z.boolean().default(false),
+    cwd: z.string().min(1).refine(isAbsolute, "请填写绝对路径").optional(),
+    allowUsers: ids,
+    names: z.array(z.enum(["read", "write", "edit", "bash", "grep", "find", "ls"])).min(1)
+      .default(["read", "write", "edit", "bash", "grep", "find", "ls"]),
+  }).strict().refine(value => !value.enabled || !!value.cwd, "启用本机工具时必须指定 cwd").prefault({}),
   model: z.object({ provider: z.string().min(1), id: z.string().min(1) }).strict().optional(),
   agentDir: z.string().default(join(homedir(), ".pi", "agent")),
   dataDir: z.string().default(join(homedir(), ".pi", "qqbot")),
@@ -66,7 +74,15 @@ export async function readConfig(file = defaultConfigPath): Promise<Config> {
   if (!result.success) {
     throw new Error(`QQ 配置无效: ${result.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   }
+  if (result.data.localTools.enabled) {
+    await validateToolsDirectory(result.data.localTools.cwd!);
+  }
   return { ...result.data, agentDir: resolve(result.data.agentDir), dataDir: resolve(result.data.dataDir) };
+}
+
+export async function validateToolsDirectory(cwd: string): Promise<void> {
+  try { if ((await stat(cwd)).isDirectory()) return; } catch { /* safe diagnostic below */ }
+  throw new Error("QQ 配置无效: localTools.cwd 必须是已存在且可访问的目录。");
 }
 
 export function readSecret(config: Config): string {

@@ -5,14 +5,19 @@ import {
   createAgentSession, createExtensionRuntime, ModelRuntime,
   SessionManager, SettingsManager, type ResourceLoader,
 } from "@earendil-works/pi-coding-agent";
-import type { Config } from "./config.js";
+import { validateToolsDirectory, type Config } from "./config.js";
 import { storageKey } from "./conversation.js";
 import { UserError, type ChatImage, type MemoryCandidate } from "./content.js";
 import { z } from "zod";
 import { hostSessionRuntime, type HostModelContext } from "./host-model.js";
 
+export interface AgentRunOptions {
+  images?: ChatImage[];
+  allowLocalTools?: boolean;
+}
+
 export interface AgentRunner {
-  run(key: string, prompt: string, systemPrompt: string, signal: AbortSignal, options?: { images?: ChatImage[] }): Promise<string>;
+  run(key: string, prompt: string, systemPrompt: string, signal: AbortSignal, options?: AgentRunOptions): Promise<string>;
   reset(key: string): Promise<void>;
   purge(key: string): Promise<void>;
   generateImage?(prompt: string, images: ChatImage[], signal: AbortSignal): Promise<ChatImage[]>;
@@ -133,11 +138,11 @@ export class PiRunner implements AgentRunner {
     return z.array(z.object({ text: z.string().trim().min(1).max(1000) }).strict()).max(3).parse(parsed);
   }
 
-  async run(key: string, prompt: string, systemPrompt: string, signal: AbortSignal, options: { images?: ChatImage[] } = {}): Promise<string> {
+  async run(key: string, prompt: string, systemPrompt: string, signal: AbortSignal, options: AgentRunOptions = {}): Promise<string> {
     return this.runSession(key, prompt, systemPrompt, signal, options);
   }
 
-  private async runSession(key: string | undefined, prompt: string, systemPrompt: string, signal: AbortSignal, options: { images?: ChatImage[] } = {}): Promise<string> {
+  private async runSession(key: string | undefined, prompt: string, systemPrompt: string, signal: AbortSignal, options: AgentRunOptions = {}): Promise<string> {
     signal.throwIfAborted();
     // Snapshot the model when work starts. A host switch affects subsequent jobs.
     const selection = this.host ? this.hostSelection() : undefined;
@@ -146,7 +151,9 @@ export class PiRunner implements AgentRunner {
     if (options.images?.length && !selected.input.includes("image")) throw new UserError("当前聊天模型不支持图片，请在 Pi 中选择支持视觉输入的模型。");
     const { model, runtime } = selection ? await hostSessionRuntime(selection.model, selection.registry) : { model: selected, runtime: this.modelRuntime! };
     const stored = key === undefined ? undefined : await this.store.open(key);
-    const cwd = stored?.cwd ?? this.config.dataDir;
+    const toolsEnabled = !!stored && this.config.localTools.enabled && options.allowLocalTools === true;
+    const cwd = toolsEnabled ? this.config.localTools.cwd! : stored?.cwd ?? this.config.dataDir;
+    if (toolsEnabled) await validateToolsDirectory(cwd);
     signal.throwIfAborted();
     const { session } = await createAgentSession({
       cwd,
@@ -154,12 +161,12 @@ export class PiRunner implements AgentRunner {
       modelRuntime: runtime,
       model,
       thinkingLevel: "off",
-      // Pi 1.3+ can restore transcript tools; keep the explicit empty allowlist
-      // so old sessions cannot reactivate local tools when resumed.
-      tools: [],
+      // The explicit allowlist also bounds tools restored from old transcripts.
+      tools: toolsEnabled ? this.config.localTools.names : [],
       noTools: "all",
       resourceLoader: chatResources(systemPrompt),
-      sessionManager: stored ? SessionManager.continueRecent(cwd, stored.sessions) : SessionManager.inMemory(cwd),
+      // Keep the transcript namespace stable across tool grants, revocation and cwd changes.
+      sessionManager: stored ? SessionManager.continueRecent(stored.cwd, stored.sessions) : SessionManager.inMemory(cwd),
       settingsManager: SettingsManager.inMemory({ retry: { enabled: false } }),
     });
     const abort = () => { void session.abort().catch(() => {}); };
