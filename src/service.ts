@@ -38,6 +38,7 @@ export class QQService {
   diagnostics(): { received: number; identities: ObservedIdentity[] } {
     return { received: this.received, identities: [...this.identities.values()].reverse().map(item => ({ ...item })) };
   }
+  manageMemories(action?: string, id?: string): Promise<string> { return this.bridge.manageMemories(action, id); }
 
   private observe(msg: QQBotInboundMessage, config: Config): void {
     this.received++;

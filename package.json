@@ -59,6 +59,8 @@
     "CONTRIBUTING.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
-    "qqbot.example.json"
+    "qqbot.example.json",
+    "examples/",
+    "start-friend.sh"
   ]
 }

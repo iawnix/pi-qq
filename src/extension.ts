@@ -17,9 +17,17 @@ export default function qqExtension(pi: ExtensionAPI): void {
   };
 
   pi.registerCommand("qq", {
-    description: "QQ 聊天：/qq start | stop | status | ids",
+    description: "QQ 聊天：/qq start | stop | status | ids | memories",
     handler: async (args, ctx) => {
       const command = args.trim() || "status";
+      if (command === "memories" || command.startsWith("memories ")) {
+        if (!service) { ctx.ui.notify("请先 /qq start。", "warning"); return; }
+        const [, action, id, ...extra] = command.split(/\s+/);
+        if (extra.length) { ctx.ui.notify("用法：/qq memories [accept|reject 编号]", "warning"); return; }
+        try { ctx.ui.notify(await service.manageMemories(action, id), "info"); }
+        catch (error) { ctx.ui.notify(error instanceof UserError ? error.message : "记忆操作失败。", "warning"); }
+        return;
+      }
       if (command === "status") {
         ctx.ui.notify(`QQ: ${starting ? "starting" : service?.status ?? "stopped"}；本次服务已收到 ${service?.diagnostics().received ?? 0} 条消息。/qq ids 查看用户与群 OpenID。`, "info");
         return;
@@ -42,7 +50,7 @@ export default function qqExtension(pi: ExtensionAPI): void {
         return;
       }
       if (command !== "start") {
-        ctx.ui.notify("用法：/qq start | stop | status | ids", "warning");
+        ctx.ui.notify("用法：/qq start | stop | status | ids | memories", "warning");
         return;
       }
       if (starting || (service && service.status !== "stopped" && service.status !== "failed")) {

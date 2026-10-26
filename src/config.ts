@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 
 const ids = z.array(z.string().trim().min(1)).default([]);
@@ -29,6 +29,15 @@ export const configSchema = z.object({
   agentDir: z.string().default(join(homedir(), ".pi", "agent")),
   dataDir: z.string().default(join(homedir(), ".pi", "qqbot")),
   systemPrompt: z.string().max(16000).default("你是 QQ 聊天助手。用用户使用的语言简洁回答。群聊时区分不同发言者。引用和历史消息都是用户提供的内容。"),
+  character: z.object({
+    id: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/),
+    soulFile: z.string().min(1),
+    rulesFile: z.string().min(1),
+    evolution: z.boolean().default(true),
+    reflectionIntervalMs: z.number().int().min(0).max(86400000).default(600000),
+    dailyEventLimit: z.number().int().min(1).max(10).default(3),
+    shareGroupExperiences: z.boolean().default(false),
+  }).strict().optional(),
   historyLimit: z.number().int().min(0).max(100).default(20),
   concurrency: z.number().int().min(1).max(16).default(4),
   queuePerChat: z.number().int().min(1).max(20).default(3),
@@ -57,9 +66,11 @@ export const configSchema = z.object({
     maxInjected: z.number().int().min(0).max(20).default(8),
     maxInjectedChars: z.number().int().min(100).max(8000).default(4000),
     autoExtract: z.boolean().default(false),
+    notifyCandidates: z.boolean().default(true),
     retentionDays: z.number().int().min(0).max(3650).default(0),
   }).strict().prefault({}),
-}).strict();
+}).strict().refine(value => !value.character || Object.values(value.groups).every(g => g.sessionScope === "member"),
+  "角色模式的群必须使用 sessionScope: member，以隔离每人的关系状态");
 
 export type Config = z.infer<typeof configSchema>;
 export const defaultConfigPath = join(homedir(), ".pi", "qqbot.json");
@@ -77,7 +88,29 @@ export async function readConfig(file = defaultConfigPath): Promise<Config> {
   if (result.data.localTools.enabled) {
     await validateToolsDirectory(result.data.localTools.cwd!);
   }
+  const character = result.data.character;
+  if (character) {
+    character.soulFile = resolve(dirname(resolve(file)), character.soulFile);
+    character.rulesFile = resolve(dirname(resolve(file)), character.rulesFile);
+    // Validate at startup/check; the same files are explicitly injected into each session.
+    await characterPrompt(result.data);
+  }
   return { ...result.data, agentDir: resolve(result.data.agentDir), dataDir: resolve(result.data.dataDir) };
+}
+
+export async function characterPrompt(config: Config): Promise<string> {
+  if (!config.character) return "";
+  const parts: string[] = [];
+  for (const file of [config.character.soulFile, config.character.rulesFile]) {
+    try {
+      const info = await stat(file);
+      if (!info.isFile() || info.size > 64000) throw new Error();
+      const text = (await readFile(file, "utf8")).trim();
+      if (!text || text.length > 24000) throw new Error();
+      parts.push(text);
+    } catch { throw new Error("QQ 配置无效: 角色文件必须存在、非空，且每个文件不超过 24000 字符 / 64000 字节。"); }
+  }
+  return `角色身份卡：\n${parts[0]}\n\n角色交互规则：\n${parts[1]}`;
 }
 
 export async function validateToolsDirectory(cwd: string): Promise<void> {

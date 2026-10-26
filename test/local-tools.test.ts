@@ -103,6 +103,12 @@ test("real Pi tools execute in configured cwd, remain scoped, obey revocation an
   assert.deepEqual(await reopened.suggestMemories("remember preference", signal), []);
   assert.deepEqual(names(), []);
   assert.ok(!JSON.stringify(requests.at(-1)).includes("PRIVATE_ALICE"));
+  answer = JSON.stringify({ experience: null, facts: [] });
+  assert.deepEqual(await hosted.reflect({ text: "a meaningful conversation", reply: "a reply", character: "a quiet reader" }, signal), { experience: null, facts: [] });
+  assert.deepEqual(names(), []);
+  assert.ok(!JSON.stringify(requests.at(-1)).includes("PRIVATE_ALICE"));
+  answer = JSON.stringify({ experience: null, facts: [], stage: 5 });
+  await assert.rejects(hosted.reflect({ text: "a meaningful conversation", reply: "a reply", character: "a quiet reader" }, signal));
   cfg.localTools.enabled = false;
   await reopened.run("alice", "MASTER_OFF", "Chat", signal, enabled);
   assert.deepEqual(names(), []);

@@ -69,6 +69,9 @@ export class MemoryStore {
   conversationKeys(scope: string): string[] {
     return this.db.prepare("SELECT key FROM conversations WHERE scope=?").all(scope).map(row => String(row.key));
   }
+  allConversationKeys(): string[] {
+    return this.db.prepare("SELECT DISTINCT key FROM conversations").all().map(row => String(row.key));
+  }
   enabled(scope: string): boolean {
     return this.options.enabled && this.db.prepare("SELECT enabled FROM settings WHERE scope=?").get(scope)?.enabled !== 0;
   }
@@ -92,6 +95,12 @@ export class MemoryStore {
   }
   find(scope: string, id: string): MemoryRecord | undefined {
     return this.db.prepare("SELECT * FROM memories WHERE scope=? AND id=?").get(scope, id) as unknown as MemoryRecord | undefined;
+  }
+  localPending(id?: string): MemoryRecord[] {
+    // Operator-only API: never call this from QQ message handlers.
+    return (id
+      ? this.db.prepare("SELECT * FROM memories WHERE id=? AND status='pending' AND expiresAt>? LIMIT 1").all(id, this.now())
+      : this.db.prepare("SELECT * FROM memories WHERE status='pending' AND expiresAt>? ORDER BY createdAt DESC LIMIT 20").all(this.now())) as unknown as MemoryRecord[];
   }
 
   add(scope: string, text: string, source: string, options: { name?: string; pending?: boolean } = {}): MemoryRecord {
@@ -125,6 +134,20 @@ export class MemoryStore {
     const days = this.options.retentionDays;
     return Number(this.db.prepare("UPDATE memories SET status='confirmed',createdAt=?,expiresAt=? WHERE scope=? AND id=? AND status='pending' AND expiresAt>?")
       .run(this.now(), days ? this.now() + days * 86400000 : null, scope, id, this.now()).changes) > 0;
+  }
+  replace(scope: string, oldId: string, candidateId: string): boolean {
+    if (!this.enabled(scope)) return false;
+    const old = this.find(scope, oldId);
+    const candidate = this.find(scope, candidateId);
+    if (old?.status !== "confirmed" || candidate?.status !== "pending" || candidate.expiresAt! <= this.now()) return false;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (!this.accept(scope, candidateId)) { this.db.exec("ROLLBACK"); return false; }
+      this.db.prepare("DELETE FROM memories WHERE scope=? AND id=?").run(scope, oldId);
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+    this.checkpoint();
+    return true;
   }
   remove(scope: string, id: string): boolean {
     const result = id === "all"
