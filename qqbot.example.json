@@ -1,5 +1,6 @@
 {
   "appId": "YOUR_QQ_APP_ID",
+  "appSecret": "",
   "secretEnv": "QQBOT_APP_SECRET",
   "allowUsers": [
     "YOUR_C2C_USER_OPENID"

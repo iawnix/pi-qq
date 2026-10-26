@@ -9,7 +9,8 @@
 | 字段 | 默认值 | 说明 |
 |---|---|---|
 | `appId` | 必填 | QQ 开放平台机器人 AppID |
-| `secretEnv` | `QQBOT_APP_SECRET` | 存放 AppSecret 的环境变量名 |
+| `appSecret` | 未设置 | 可直接填写 QQ 机器人 AppSecret |
+| `secretEnv` | `QQBOT_APP_SECRET` | 可选的密钥环境变量名；非空环境变量优先于 `appSecret` |
 | `model.provider` / `model.id` | 必填 | Pi 模型提供商与模型标识 |
 | `allowUsers` | `[]` | 允许私聊的用户 OpenID |
 | `groups` | `{}` | 以群 OpenID 为键的群配置 |
@@ -23,7 +24,28 @@
 | `timeoutMs` | `180000` | 单次模型任务超时，范围 1000–240000 毫秒 |
 | `replyWindowMs` | `240000` | 消息处理与回复的应用时效预算，范围 1000–300000 毫秒 |
 
-AppSecret 只从环境变量读取，不放入配置文件。内置模型或 `models.json` 中定义的模型可用；仅由个人 Pi 扩展注册的模型不会加载。宿主 Pi 需使用 1.4.x；安装本项目不会更新宿主 Pi。
+AppSecret 可以直接填写到 `qqbot.json` 的 `appSecret` 字段。也支持从 `secretEnv` 指定的环境变量读取：非空环境变量优先，未设置或为空时使用 JSON 字段；两者均为空则报错。真实配置 `qqbot.json` 已被 Git 忽略，不要把密钥写进示例文件或提交到仓库。内置模型或 `models.json` 中定义的模型可用；仅由个人 Pi 扩展注册的模型不会加载。宿主 Pi 需使用 1.4.x；安装本项目不会更新宿主 Pi。
+
+### 直接在 JSON 中填写密钥
+
+在原有 `qqbot.json` 的 `appId` 下方添加 `"appSecret": "你的AppSecret",`，其余字段保持原样。在项目目录执行：
+
+```bash
+node dist/cli.js check --config ./qqbot.json
+node dist/cli.js start --config ./qqbot.json
+```
+
+这种 CLI 启动方式不需要 `read` 或 `export`。Pi 扩展可将配置放到 `~/.pi/qqbot.json`；放在其他位置时，启动 Pi 前设置 `PI_QQ_CONFIG` 指向该文件。
+
+如果选择环境变量方式，JSON 的 `appSecret` 可以省略或留空。在 Bash 终端执行以下命令，在提示后粘贴密钥并按回车；输入不会回显：
+
+```bash
+read -rsp 'QQ AppSecret: ' QQBOT_APP_SECRET
+export QQBOT_APP_SECRET
+node dist/cli.js start --config ./qqbot.json
+```
+
+环境变量只对当前终端及其子进程有效，新开终端后需要重新设置。
 
 ## QQ 权限与身份
 
@@ -186,7 +208,7 @@ npm ci
 npm run build
 ```
 
-重新设置环境变量后启动服务。源码目录中的真实配置不会被 Git 跟踪。项目尚未发布到 npm，`package.json` 中的 `private: true` 用于防止意外发布，不影响 GitHub 公开访问或 MIT 授权。
+使用同一配置路径重新启动服务；选择环境变量方式时，需要在新终端重新设置变量。源码目录中的真实配置不会被 Git 跟踪。项目尚未发布到 npm，`package.json` 中的 `private: true` 用于防止意外发布，不影响 GitHub 公开访问或 MIT 授权。
 
 Pi 的间接依赖 Undici 覆盖为 8.12.2，以修复安装时审计发现的问题；此覆盖仅作用于本项目，不会修改宿主 Pi。升级依赖时需重新核对审计结果。
 

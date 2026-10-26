@@ -13,6 +13,7 @@ const group = z.object({
 
 export const configSchema = z.object({
   appId: z.string().trim().min(1),
+  appSecret: z.string().trim().optional(),
   secretEnv: z.string().min(1).default("QQBOT_APP_SECRET"),
   allowUsers: ids,
   groups: z.record(z.string().min(1), group).default({}),
@@ -56,8 +57,12 @@ export type Config = z.infer<typeof configSchema>;
 export const defaultConfigPath = join(homedir(), ".pi", "qqbot.json");
 
 export async function readConfig(file = defaultConfigPath): Promise<Config> {
-  // Validation never includes secret contents; secrets are not fields in this file.
-  const result = configSchema.safeParse(JSON.parse(await readFile(file, "utf8")));
+  const contents = await readFile(file, "utf8");
+  let parsed: unknown;
+  try { parsed = JSON.parse(contents); }
+  catch { throw new Error("QQ 配置无效: JSON 格式错误，请检查引号和逗号。"); }
+  // Never expose JSON parser excerpts, which may contain an inline secret.
+  const result = configSchema.safeParse(parsed);
   if (!result.success) {
     throw new Error(`QQ 配置无效: ${result.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   }
@@ -65,7 +70,7 @@ export async function readConfig(file = defaultConfigPath): Promise<Config> {
 }
 
 export function readSecret(config: Config): string {
-  const secret = process.env[config.secretEnv]?.trim();
-  if (!secret) throw new Error(`请设置环境变量 ${config.secretEnv}`);
+  const secret = process.env[config.secretEnv]?.trim() || config.appSecret?.trim();
+  if (!secret) throw new Error("QQ 配置无效: 请填写 appSecret 或设置密钥环境变量。");
   return secret;
 }

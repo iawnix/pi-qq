@@ -41,18 +41,29 @@ cp qqbot.example.json qqbot.json
 
 ### 2. 配置机器人
 
-编辑 `qqbot.json`，填写 `appId`、`model.provider`、`model.id`，以及允许的用户和群。QQ 的 OpenID 不是 QQ 号码，私聊用户与群成员的标识也不通用。详见 [配置文档](docs/configuration.md)。
+编辑 `qqbot.json`，填写 `appId`、`appSecret`、`model.provider`、`model.id`，以及允许的用户和群。QQ 的 OpenID 不是 QQ 号码，私聊用户与群成员的标识也不通用。详见 [配置文档](docs/configuration.md)。
 
-在启动服务的终端中设置密钥与配置路径：
+`appSecret` 直接填写机器人后台的 AppSecret，例如：
 
-```bash
-read -rsp 'QQ AppSecret: ' QQBOT_APP_SECRET
-export QQBOT_APP_SECRET
-export PI_QQ_CONFIG="$PWD/qqbot.json"
-node dist/cli.js check
+```json
+{
+  "appId": "你的AppID",
+  "appSecret": "你的AppSecret",
+  "allowUsers": ["你的私聊OpenID"],
+  "model": {
+    "provider": "你的Pi模型提供商",
+    "id": "你的Pi模型ID"
+  }
+}
 ```
 
-`check` 验证本地配置、密钥变量和模型注册情况，不调用 QQ 或模型接口。
+在项目目录检查配置：
+
+```bash
+node dist/cli.js check --config ./qqbot.json
+```
+
+`check` 验证本地配置、AppSecret 和模型注册情况，不调用 QQ 或模型接口。也可将 `appSecret` 留空，使用 `secretEnv` 指定的环境变量（默认 `QQBOT_APP_SECRET`）；两者都有值时环境变量优先。真实 `qqbot.json` 已被 Git 忽略，请勿把密钥填写到会提交的示例文件中。
 
 ### 3. 启动
 
@@ -60,6 +71,7 @@ node dist/cli.js check
 
 ```bash
 pi install "$PWD"
+export PI_QQ_CONFIG="$PWD/qqbot.json"
 pi
 ```
 
@@ -68,10 +80,10 @@ pi
 **作为独立服务**：
 
 ```bash
-node dist/cli.js start
+node dist/cli.js start --config ./qqbot.json
 ```
 
-同一 AppID 只在一台电脑上运行一个实例。使用本地路径安装后，请保留源码目录；后续启动仍需设置密钥与配置路径。
+同一 AppID 只在一台电脑上运行一个实例。使用本地路径安装后，请保留源码目录；后续启动继续指定该配置文件；Pi 扩展需设置 `PI_QQ_CONFIG`，或将配置放到默认的 `~/.pi/qqbot.json`。
 
 ## 命令
 
