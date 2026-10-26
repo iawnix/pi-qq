@@ -107,8 +107,9 @@ export class ChatBridge {
         return;
       }
       const match = /^(\/\S+)(?:\s+([\s\S]*))?$/.exec(content);
-      const command = match?.[1];
-      const argument = match?.[2]?.trim() ?? "";
+      const remember = !match ? /^(?:请)?记住(我[\s\S]+|[：:，,\s]+[\s\S]+)$/.exec(content) : null;
+      const command = match?.[1] ?? (remember ? "/remember" : undefined);
+      const argument = match?.[2]?.trim() ?? remember?.[1]?.replace(/^[：:，,\s]+/u, "").trim() ?? "";
       const allowLocalTools = this.config.localTools.enabled &&
         (group ? group.allowTools : this.config.localTools.allowUsers.includes(msg.senderId));
       if (command === "/tools") {

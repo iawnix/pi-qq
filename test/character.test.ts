@@ -273,3 +273,18 @@ test("explicit memory correction removes its old event evidence and rejects cros
   assert.match(f.replies.at(-1)!, /现在偏好诗歌/);
   await f.bridge.stop();
 });
+
+test("explicit Chinese remember requests persist immediately without reflection; ordinary questions are not commands", async () => {
+  const cfg = await characterConfig();
+  const f = fixture(cfg);
+  await f.bridge.handle(message({ content: "请记住：我喜欢读散文" }));
+  await f.bridge.handle(message({ content: "记住我喜欢慢节奏聊天" }));
+  assert.equal(f.calls.length, 0);
+  await f.bridge.handle(message({ content: "/reset" }));
+  await f.bridge.handle(message({ content: "记住了吗？" }));
+  assert.equal(f.calls.length, 1);
+  const memories = JSON.parse(f.calls[0]!.prompt).memories;
+  assert.ok(memories.some((m: { text: string }) => m.text === "我喜欢读散文"));
+  assert.ok(memories.some((m: { text: string }) => m.text === "我喜欢慢节奏聊天"));
+  await f.bridge.stop();
+});
