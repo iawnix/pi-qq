@@ -222,7 +222,7 @@ export class ChatBridge {
           if (this.character && this.runner.reflect && content && this.memory.enabled(resolved.memory)) {
             try {
               if (!this.character.claimReflection(resolved.memory, resolved.chat, msg.messageId, content)) return;
-              const reflection = reflectionSchema.parse(await this.runner.reflect({ text: content.slice(0, 16000), reply: text.slice(0, 8000), character: persona }, signal));
+              const reflection = reflectionSchema.parse(await this.runner.reflect({ text: content.slice(0, 16000), character: persona }, signal));
               signal.throwIfAborted();
               this.character.record(resolved.memory, resolved.chat, msg.senderId, msg.messageId, content, reflection, !!group);
               if (this.config.memory.autoExtract) {

@@ -21,7 +21,7 @@ export const reflectionSchema = z.object({
   facts: z.array(z.object({ text: z.string().trim().min(1).max(1000), evidence: z.string().trim().min(4).max(300) }).strict()).max(3),
 }).strict();
 export type Reflection = z.infer<typeof reflectionSchema>;
-export interface ReflectionInput { text: string; reply: string; character: string }
+export interface ReflectionInput { text: string; character: string }
 export interface Experience {
   id: string; scope: string; audience: string; sender: string; source: string; summary: string; evidence: string;
   kind: "interaction" | "imagined"; shared: number; trust: number; comfort: number; affinity: number; createdAt: number;
