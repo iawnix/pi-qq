@@ -39,7 +39,7 @@ test("service prevents duplicate gateways, handles stop, and releases lock after
   const oldSecret = process.env[cfg.secretEnv];
   process.env[cfg.secretEnv] = "fake";
   t.after(() => { if (oldSecret === undefined) delete process.env[cfg.secretEnv]; else process.env[cfg.secretEnv] = oldSecret; });
-  const runner = { run: async () => "ok", reset: async () => {} };
+  const runner = { run: async () => "ok", reset: async () => {}, purge: async () => {} };
   const reports: string[] = [];
   const gateway = new FakeGateway();
   const options = { lockRoot: join(root, "locks"), runner, createGateway: () => gateway };

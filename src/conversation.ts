@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import type { QQBotInboundMessage } from "@tencent-connect/qqbot-nodejs";
 
-export function conversationKey(appId: string, msg: QQBotInboundMessage): string {
-  return JSON.stringify([appId, msg.replyTarget.scope, msg.replyTarget.targetId]);
+export function conversationKey(appId: string, msg: QQBotInboundMessage, groupSessionScope: "group" | "member" = "group"): string {
+  return JSON.stringify(msg.replyTarget.scope === "group" && groupSessionScope === "member"
+    ? [appId, "group-member", msg.replyTarget.targetId, msg.senderId]
+    : [appId, msg.replyTarget.scope, msg.replyTarget.targetId]);
 }
 
 export function storageKey(key: string): string {
@@ -47,6 +49,9 @@ export class PendingHistory {
     else this.entries.delete(key);
   }
   clear(key: string): void { this.entries.delete(key); }
+  clearMatching(matches: (key: string) => boolean): void {
+    for (const key of this.entries.keys()) if (matches(key)) this.entries.delete(key);
+  }
 }
 
 /** True TTL deduplication; separate from conversation history and gateway resume. */

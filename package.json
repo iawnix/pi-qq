@@ -1,9 +1,9 @@
 {
   "name": "pi-qq",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "QQ private and group chat adapter for Pi",
+  "description": "QQ chat, scoped memory and images for Pi",
   "engines": {
     "node": ">=22.19.0"
   },
@@ -23,7 +23,9 @@
   },
   "dependencies": {
     "@tencent-connect/qqbot-nodejs": "1.0.5",
+    "ipaddr.js": "2.5.0",
     "proper-lockfile": "4.1.2",
+    "sharp": "0.35.5",
     "zod": "4.6.7"
   },
   "peerDependencies": {
@@ -53,6 +55,7 @@
     "dist/",
     "docs/",
     "README.md",
+    "CHANGELOG.md",
     "CONTRIBUTING.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",

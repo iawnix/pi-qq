@@ -1,5 +1,12 @@
 import type { QQBotInboundMessage } from "@tencent-connect/qqbot-nodejs";
 import { configSchema } from "../src/config.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after } from "node:test";
+
+const directories: string[] = [];
+after(() => { for (const directory of directories) rmSync(directory, { recursive: true, force: true }); });
 
 export function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -9,7 +16,9 @@ export function deferred<T = void>() {
 }
 export const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 export function config() {
-  return configSchema.parse({ appId: "app", allowUsers: ["alice", "bob"], groups: { g: { admins: ["admin"] } }, model: { provider: "test", id: "test" } });
+  const dataDir = mkdtempSync(join(tmpdir(), "pi-qq-config-test-"));
+  directories.push(dataDir);
+  return configSchema.parse({ appId: "app", dataDir, allowUsers: ["alice", "bob"], groups: { g: { admins: ["admin"] } }, model: { provider: "test", id: "test" } });
 }
 let id = 0;
 export function message(overrides: Partial<QQBotInboundMessage> = {}): QQBotInboundMessage {

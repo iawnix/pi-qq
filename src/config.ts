@@ -6,6 +6,7 @@ import { z } from "zod";
 const ids = z.array(z.string().trim().min(1)).default([]);
 const group = z.object({
   requireMention: z.boolean().default(true),
+  sessionScope: z.enum(["group", "member"]).default("group"),
   admins: ids,
   prompt: z.string().max(8000).default(""),
 }).strict();
@@ -31,6 +32,24 @@ export const configSchema = z.object({
   }).strict().prefault({}),
   timeoutMs: z.number().int().min(1000).max(240000).default(180000),
   replyWindowMs: z.number().int().min(1000).max(300000).default(240000),
+  images: z.object({
+    enabled: z.boolean().default(false),
+    maxBytes: z.number().int().min(1024).max(10_000_000).default(5_000_000),
+    timeoutMs: z.number().int().min(1000).max(30000).default(10000),
+    maxImages: z.number().int().min(1).max(4).default(3),
+    maxPixels: z.number().int().min(10000).max(40_000_000).default(16_000_000),
+    maxDimension: z.number().int().min(256).max(4096).default(1600),
+    allowedHosts: z.array(z.string().regex(/^[a-zA-Z0-9.-]+$/)).default([]),
+    generationModel: z.object({ provider: z.string().min(1), id: z.string().min(1) }).strict().optional(),
+  }).strict().prefault({}),
+  memory: z.object({
+    enabled: z.boolean().default(true),
+    maxPerScope: z.number().int().min(1).max(100).default(50),
+    maxInjected: z.number().int().min(0).max(20).default(8),
+    maxInjectedChars: z.number().int().min(100).max(8000).default(4000),
+    autoExtract: z.boolean().default(false),
+    retentionDays: z.number().int().min(0).max(3650).default(0),
+  }).strict().prefault({}),
 }).strict();
 
 export type Config = z.infer<typeof configSchema>;

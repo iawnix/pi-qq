@@ -10,4 +10,8 @@ models.json
 models-store.json
 data/
 sessions/
+memory/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 *.tgz

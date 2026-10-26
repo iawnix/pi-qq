@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { createBashTool, createReadTool, SessionManager } from "@earendil-works/pi-coding-agent";
 import { ConversationStore, PiRunner } from "../src/agent.js";
 import { config } from "./helpers.js";
+import sharp from "sharp";
 
 test("session store reopens chat and reset preserves other chat namespaces", async t => {
   const root = await mkdtemp(join(tmpdir(), "pi-qq-store-"));
@@ -20,19 +21,30 @@ test("session store reopens chat and reset preserves other chat namespaces", asy
   await store.reset("app:c2c:alice");
   assert.notEqual((await store.open("app:c2c:alice")).sessions, first.sessions);
   assert.deepEqual(await store.open("app:group:alice"), other);
+  await store.purge("app:c2c:alice");
+  assert.deepEqual(await store.open("app:c2c:alice"), first);
+  assert.deepEqual(await store.open("app:group:alice"), other);
 });
 
 test("real Pi SDK with local mock model: no tools/private resources; restore, isolate and reset history", { timeout: 30000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), "pi-qq-agent-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const requests: Array<{ messages: Array<{ role: string; content: unknown }>; tools?: unknown[] }> = [];
+  const image = { type: "image" as const, mimeType: "image/png", data: (await sharp({ create: { width: 8, height: 8, channels: 3, background: "red" } }).png().toBuffer()).toString("base64") };
+  let answer = "local answer";
   const server = createServer(async (req, res) => {
     const parts: Buffer[] = [];
     for await (const chunk of req) parts.push(Buffer.from(chunk));
-    requests.push(JSON.parse(Buffer.concat(parts).toString()));
+    const request = JSON.parse(Buffer.concat(parts).toString());
+    requests.push(request);
+    if (request.stream === false) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ id: "image-result", choices: [{ message: { role: "assistant", content: "generated", images: [{ image_url: { url: `data:image/png;base64,${image.data}` } }] } }] }));
+      return;
+    }
     res.writeHead(200, { "content-type": "text/event-stream" });
     for (const choice of [
-      { index: 0, delta: { role: "assistant", content: "local answer" }, finish_reason: null },
+      { index: 0, delta: { role: "assistant", content: answer }, finish_reason: null },
       { index: 0, delta: {}, finish_reason: "stop" },
     ]) res.write(`data: ${JSON.stringify({ id: "mock", object: "chat.completion.chunk", created: 1, model: "test", choices: [choice] })}\n\n`);
     res.end("data: [DONE]\n\n");
@@ -45,14 +57,15 @@ test("real Pi SDK with local mock model: no tools/private resources; restore, is
   const cfg = config();
   cfg.agentDir = join(root, "agent");
   cfg.dataDir = join(root, "data");
+  cfg.images.generationModel = { provider: "openrouter", id: "google/gemini-2.5-flash-image" };
   await mkdir(join(cfg.agentDir, "extensions"), { recursive: true });
   await writeFile(join(cfg.agentDir, "AGENTS.md"), "OWNER_PRIVATE_MARKER");
   await writeFile(join(cfg.agentDir, "SYSTEM.md"), "OWNER_SYSTEM_MARKER");
   await writeFile(join(cfg.agentDir, "extensions", "trap.ts"), 'throw new Error("Nested extension was loaded");');
   await writeFile(join(cfg.agentDir, "models.json"), JSON.stringify({ providers: { test: {
     api: "openai-completions", baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: "fake-local-key",
-    models: [{ id: "test", contextWindow: 32000, maxTokens: 1024 }],
-  } } }));
+    models: [{ id: "test", input: ["text", "image"], contextWindow: 32000, maxTokens: 1024 }, { id: "text-only", input: ["text"] }],
+  }, openrouter: { baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: "fake-local-key" } } }));
   const signal = new AbortController().signal;
   const runner = await PiRunner.create(cfg);
   assert.equal(await runner.run("chat-a", "FIRST_CHAT_PRIVATE", "Chat instructions", signal), "local answer");
@@ -79,4 +92,24 @@ test("real Pi SDK with local mock model: no tools/private resources; restore, is
     assert.ok(!JSON.stringify(request).includes("OWNER_"));
     assert.ok(JSON.stringify(request).includes("Chat instructions"));
   }
+  await reopened.run("visual", "FIRST_IMAGE", "Chat instructions", signal, { images: [image] });
+  assert.ok(JSON.stringify(requests.at(-1)).includes("data:image/"));
+  await reopened.run("visual", "FOLLOWUP", "Chat instructions", signal);
+  assert.ok(JSON.stringify(requests.at(-1)).includes("FIRST_IMAGE"));
+  await reopened.purge("visual");
+  await reopened.run("visual", "AFTER_PURGE", "Chat instructions", signal);
+  assert.ok(!JSON.stringify(requests.at(-1)).includes("FIRST_IMAGE"));
+  assert.ok(!JSON.stringify(requests.at(-1)).includes("data:image/"));
+  const beforeRejected = requests.length;
+  cfg.model.id = "text-only";
+  await assert.rejects(reopened.run("no-vision", "question", "Chat instructions", signal, { images: [image] }), /不支持图片/);
+  assert.equal(requests.length, beforeRejected);
+  cfg.model.id = "test";
+  answer = '[{"text":"prefers concise answers"}]';
+  assert.deepEqual(await reopened.suggestMemories("I prefer concise answers", signal), [{ text: "prefers concise answers" }]);
+  assert.ok(!JSON.stringify(requests.at(-1)).includes("FIRST_CHAT_PRIVATE"));
+  assert.deepEqual(await reopened.generateImage("draw a cat", [image], signal), [image]);
+  assert.ok(JSON.stringify(requests.at(-1)).includes("draw a cat"));
+  assert.ok(JSON.stringify(requests.at(-1)).includes("data:image/png"));
+  assert.ok(!JSON.stringify(requests.at(-1)).includes("FIRST_CHAT_PRIVATE"));
 });

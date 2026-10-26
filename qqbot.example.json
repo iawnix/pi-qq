@@ -1,12 +1,17 @@
 {
   "appId": "YOUR_QQ_APP_ID",
   "secretEnv": "QQBOT_APP_SECRET",
-  "allowUsers": ["YOUR_C2C_USER_OPENID"],
+  "allowUsers": [
+    "YOUR_C2C_USER_OPENID"
+  ],
   "groups": {
     "YOUR_GROUP_OPENID": {
       "requireMention": true,
-      "admins": ["YOUR_MEMBER_OPENID_IN_THIS_GROUP"],
-      "prompt": "这是一个朋友聊天群，回答简洁自然，注意区分发言者。"
+      "admins": [
+        "YOUR_MEMBER_OPENID_IN_THIS_GROUP"
+      ],
+      "prompt": "这是一个朋友聊天群，回答简洁自然，注意区分发言者。",
+      "sessionScope": "member"
     }
   },
   "model": {
@@ -24,5 +29,22 @@
     "windowMs": 60000
   },
   "timeoutMs": 180000,
-  "replyWindowMs": 240000
+  "replyWindowMs": 240000,
+  "memory": {
+    "enabled": true,
+    "autoExtract": false,
+    "maxPerScope": 50,
+    "maxInjected": 8,
+    "maxInjectedChars": 4000,
+    "retentionDays": 0
+  },
+  "images": {
+    "enabled": false,
+    "maxBytes": 5000000,
+    "maxImages": 3,
+    "maxPixels": 16000000,
+    "maxDimension": 1600,
+    "timeoutMs": 10000,
+    "allowedHosts": []
+  }
 }

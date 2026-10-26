@@ -13,6 +13,7 @@ function fixture(run?: AgentRunner["run"], cfg = config()) {
   const bridge = new ChatBridge(cfg, {
     run: async (...args) => { calls.push({ key: args[0], prompt: args[1] }); return run ? run(...args) : "answer"; },
     reset: async key => { resets.push(key); },
+    purge: async () => {},
   }, { sendText: async (target, text) => { replies.push({ target, text }); } }, code => reports.push(code));
   return { bridge, calls, resets, replies, reports };
 }

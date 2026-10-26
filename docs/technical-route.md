@@ -1,6 +1,6 @@
 # 技术路线：Pi 的 QQ 私聊与群聊适配
 
-决策：使用 **TypeScript + qqbot-nodejs + Pi SDK**。共享一个服务核心，提供独立 CLI 和 Pi 扩展两个入口。第一阶段完成文本聊天，后续按实际平台权限接入扫码绑定、C2C 流式与媒体。
+决策：使用 **TypeScript + qqbot-nodejs + Pi SDK**。共享一个服务核心，提供独立 CLI 和 Pi 扩展两个入口。已实现文本、按作用域持久化的画像与记忆，以及可选图片理解和生成；后续按实际平台权限接入扫码绑定、C2C 流式与语音。
 
 ## 三个仓库的定位
 
@@ -20,7 +20,7 @@
 
 使用 `ModelRuntime.create`、`createAgentSession` 和 `SessionManager.continueRecent`。每次请求加载对应聊天的持久会话，完成后释放 AgentSession；同一聊天由队列保证串行。复用本机模型配置及认证，但显式传入空资源加载器与 `tools: []`、`noTools: "all"`，从源头阻止聊天进程发现本机扩展和工作区上下文。
 
-Pi 的终端主会话不承载 QQ 消息。否则群聊可能读取终端上下文，多个聊天也会互相覆盖。会话键采用 `JSON.stringify([appId, scope, targetId])`，在磁盘上哈希成目录名；重置通过原子切换会话代次实现，保留原历史。
+Pi 的终端主会话不承载 QQ 消息。否则群聊可能读取终端上下文，多个聊天也会互相覆盖。会话键采用 `JSON.stringify([appId, scope, targetId])`，成员隔离模式使用 `[appId, "group-member", groupId, senderId]`，在磁盘上哈希成目录名。群模式变化或全群重置增加持久化 epoch；普通重置通过原子切换会话代次实现，均保留原历史。长期记忆使用不含 epoch 的独立作用域，重置不丢失记忆。
 
 Pi 的 `prompt()` 返回后仍需检查最终 assistant 消息：模型错误可能表现为 `stopReason: error`，而不是 Promise rejection。取消会等待 `session.abort()` 完成，之后才 `dispose()` 并允许队列继续。
 
@@ -30,15 +30,28 @@ Pi 的 `prompt()` 返回后仍需检查最终 assistant 消息：模型错误可
 flowchart LR
     QQ[QQ WebSocket] --> SDK[qqbot-nodejs 协议层]
     SDK --> Gate[白名单 / 时效 / 去重 / 群 @ 门控]
-    Gate --> Commands[帮助 / 停止 / 重置]
-    Gate --> Queue[限流与按聊天串行队列]
-    Queue --> Pi[独立 Pi AgentSession]
-    Pi <--> Store[按机器人和聊天持久化]
-    Pi --> Reply[最终文本 / 原始 msg_id]
+    Gate --> Commands[帮助 / 停止 / 全群重置]
+    Gate --> Queue[限流与按作用域串行队列]
+    Queue <--> Memory[SQLite 画像 / 记忆 / 路由]
+    Queue --> Images[受限下载与图片解码]
+    Images --> Pi[独立 Pi AgentSession / 图片模型]
+    Queue --> Pi
+    Pi <--> Store[按机器人和作用域持久化]
+    Pi --> Reply[文本或图片 / 原始 msg_id]
     Reply --> SDK
 ```
 
 CLI 和扩展共用 `QQService`。扩展仅在 `/qq start` 时启动，`QQBot.start()` 的长期 Promise 保存在服务内部，不阻塞扩展注册。停止时取消网关和模型任务，等待退出，再释放进程锁。库中不安装全局退出处理器、不调用 `process.exit()`；只有 CLI 监听 SIGINT/SIGTERM。
+
+## 记忆与媒体实现
+
+记忆使用 Node 内置 SQLite，启用 WAL、`secure_delete` 和删除后的 checkpoint。条目按机器人、聊天类型、群及成员隔离；画像、明确记忆与待确认候选统一管理。检索按画像、关键词和时间排序，并限制条数与正文长度；没有跨身份关联或向量检索。模型输入中的记忆是用户数据，不提升为系统权限。
+
+所有记忆修改与模型请求通过同一作用域队列串行执行。`/forget` 先删除该作用域索引记录的所有 Pi 会话目录与内存缓存，再删除条目，防止旧上下文重新带入已删除事实。修改画像或停用记忆也清理历史；自动提取只创建有效期 7 天的候选，确认后才参与检索。SQLite 的路由 epoch 防止群模式切回时重新打开旧会话。
+
+图片下载只接受事件附件的公共 HTTPS 地址，不跟随重定向；实际 socket DNS lookup 校验全部地址，限制输入字节和解码像素。Sharp 将静态 PNG/JPEG/WebP 统一成去元数据的 JPEG。图片理解使用 `session.prompt(..., { images })`，图片生成使用 Pi 1.4 的 `ModelRuntime.generateImages`，后者单独选择 image 类型模型。发送调用 QQ SDK `sendImage`，检查返回的消息 ID，不将仅上传成功视为已发出消息。
+
+图片的原始下载字节不落盘，但归一化后的视觉输入会随 Pi 会话保存。生成请求独立于聊天历史；没有让聊天模型自由下载链接或调用本机文件工具。Sharp 及其 libvips 原生依赖各自的许可证说明见 [第三方声明](../THIRD_PARTY_NOTICES.md)。
 
 ## 源码审阅带来的修正
 
@@ -53,14 +66,14 @@ CLI 和扩展共用 `QQService`。扩展仅在 `/qq start` 时启动，`QQBot.st
 
 ## 已实现与后续顺序
 
-已实现：文本私聊/群聊、显式白名单、默认 @、有界群上下文、聊天隔离、持久 Pi 会话、去重、队列、模型限流、取消/超时、管理员重置、实例锁、WebSocket Resume 状态持久化、CLI 与扩展入口。
+已实现：文本私聊/群聊、显式白名单、默认 @、有界群上下文、聊天隔离、持久 Pi 会话、去重、队列、模型限流、取消/超时、管理员重置、实例锁、WebSocket Resume 状态持久化、CLI 与扩展入口。0.2.0 新增群成员隔离、SQLite 画像与长期记忆、可确认的自动提取，以及图片理解、回传和生成。
 
 后续优先级：
 
-1. **真实平台联调。** 验证 C2C 与群事件、OpenID 获取、@ 文本、回复额度/时限、长消息和断线恢复；使用独立测试机器人及测试群。
+1. **真实平台联调。** 验证 C2C 与群事件、OpenID 获取、@ 文本、附件 URL/下载策略、媒体上传与回复额度/时限、长消息和断线恢复；使用独立测试机器人及测试群。
 2. **扫码与配对。** 按 OpenClaw 的分层方式使用 `@tencent-connect/qqbot-connector`，先明确密钥的受限文件存储或系统凭据存储，再加入登录入口。当前没有安装这项未使用的依赖。
 3. **C2C 原生流式。** 只在发送确认、节流 flush、终态确认和超时行为可验证后启用；群继续按能力使用最终回复。避免“已部分发送又全量补发”的重复答案。
-4. **媒体。** 图片优先，语音随后；增加附件下载策略、内容类型及大小限制，再与 Pi 多模态输入对接。
+4. **更多媒体与记忆检索。** 在图片实机联调后评估语音；记忆数据量增大时再引入向量检索。跨场景身份关联需要用户明确绑定及可撤销的权限设计。
 5. **可选工具。** 单独定义授权和作用域，不把个人编程会话的默认文件/shell 权限直接暴露给群成员。
 
 当前测试覆盖本地行为，并使用真实 Pi SDK 对本地模拟模型执行多轮请求；不构成 QQ 线上权限、额度或 SDK 全部故障路径已验证的证明。重启去重、发送确认、跨主机单实例及磁盘保留期限仍是后续可靠性工作。

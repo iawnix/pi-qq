@@ -9,6 +9,7 @@ import { readSecret, type Config } from "./config.js";
 import { storageKey } from "./conversation.js";
 
 export interface Gateway extends Pick<QQBot, "start" | "stop" | "sendText"> {
+  sendImage?: QQBot["sendImage"];
   on<K extends keyof QQBotEventMap>(event: K, handler: QQBotEventMap[K]): unknown;
   use(...middleware: Middleware[]): unknown;
 }

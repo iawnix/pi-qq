@@ -16,6 +16,7 @@ export class Scheduler {
   private active = new Map<string, Job>();
   private stopped = false;
   private drainWaiters: Array<() => void> = [];
+  private idleWaiters: Array<{ matches: (key: string) => boolean; resolve: () => void }> = [];
 
   constructor(private concurrency = 4, private perChat = 3, private total = 64) {}
 
@@ -47,6 +48,18 @@ export class Scheduler {
     return cancelled;
   }
 
+  cancelMatching(matches: (key: string) => boolean): boolean {
+    let cancelled = false;
+    for (const key of new Set([...this.active.keys(), ...this.pending.map(j => j.key)])) {
+      if (matches(key)) cancelled = this.cancel(key) || cancelled;
+    }
+    return cancelled;
+  }
+
+  async waitUntilIdle(matches: (key: string) => boolean): Promise<void> {
+    if ([...this.active.keys()].some(matches)) await new Promise<void>(resolve => this.idleWaiters.push({ matches, resolve }));
+  }
+
   async stop(): Promise<void> {
     this.stopped = true;
     for (const job of this.pending.splice(0)) job.reject(new StoppedError("服务已停止"));
@@ -63,6 +76,10 @@ export class Scheduler {
       void Promise.resolve().then(() => job.run(job.controller.signal)).then(job.resolve, job.reject).finally(() => {
         this.active.delete(job.key);
         this.pump();
+        this.idleWaiters = this.idleWaiters.filter(waiter => {
+          if ([...this.active.keys()].some(waiter.matches)) return true;
+          waiter.resolve(); return false;
+        });
         if (!this.active.size && !this.pending.length) {
           for (const resolve of this.drainWaiters.splice(0)) resolve();
         }
